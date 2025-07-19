@@ -299,8 +299,7 @@ class SimpleRAGInference:
     def __call__(self, repo_name: str, prompt: str) -> tuple[str, dict]:
         ds = self.dataset_cfg.create(repo_name=repo_name)
         inference = self.inference_cfg.create(ds)
-        inference.query(question=prompt)
-        return inference(query=prompt)
+        return inference.query(question=prompt)
 
     def generate_completion(self, progress_bar: bool = True) -> Iterator[dict[str, str]]:
         """Pipeline for evocodebench generation."""
@@ -309,12 +308,14 @@ class SimpleRAGInference:
             # namespace = _get_correct_namespace(task["completion_path"], task["project_path"], task["namespace"])
             repo_name = Path(task["project_path"]).parts[-1]
             # перенесли внутри SimpleRAGPipeline
-            # prompt = build_prompt(
-            #     task=task,
-            #     repos_path=self.repos_path,
-            # )
+            prompt = build_prompt(
+                task=task,
+                repos_path=self.repos_path,
+            )["prompt"]
+            print("AAAA", type(prompt))
+            print(prompt)
 
-            generation = self(repo_name=repo_name, prompt=task)
+            generation = self(repo_name=repo_name, prompt=prompt)
             result = {
                 "namespace": task["namespace"],
                 "completion": generation,
