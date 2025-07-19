@@ -2,6 +2,7 @@ from typing import Literal, Any, Dict
 
 from pydantic import Field
 import torch
+from tqdm import trange
 from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from ragc.graphs.common import Node
@@ -37,7 +38,7 @@ class HuggingFaceEmbedder(BaseEmbedder):
         batch_size = min(self.max_batch_size, len(inputs))
         embeddings = []
 
-        for i in range(0, len(inputs), batch_size):
+        for i in trange(0, len(inputs), batch_size):
             batch = inputs[i : min(i + batch_size, len(inputs))]
             tokenized_inputs = self.tokenizer(
                 batch,
