@@ -312,8 +312,6 @@ class SimpleRAGInference:
                 task=task,
                 repos_path=self.repos_path,
             )["prompt"]
-            print("AAAA", type(prompt))
-            print(prompt)
 
             generation = self(repo_name=repo_name, prompt=prompt)
             result = {
