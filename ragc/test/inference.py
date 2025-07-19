@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from pprint import pprint
 
-from ragc.test.test_config import TestInferenceConfig
+from ragc.test.test_config import TestInferenceConfig, EvoCodeBenchInferenceConfig
 from ragc.utils import load_config
 from ragc.test.clean import clean_single
 
@@ -48,7 +48,7 @@ def generate_completions(
     os.makedirs(output_dir, exist_ok=True)
     os.makedirs(raw_output_dir, exist_ok=True)
 
-    test_inference_cfg: TestInferenceConfig = load_config(TestInferenceConfig, config_path)
+    test_inference_cfg: EvoCodeBenchInferenceConfig = load_config(EvoCodeBenchInferenceConfig, config_path)
     test_inference = test_inference_cfg.create()
     print(f"Loaded {len(test_inference.tasks)} tasks")
     print("-" * 256)
