@@ -44,6 +44,7 @@ class OllamaGenerator(BaseGenerator):
 
 
 class OllamaGeneratorConfig(BaseGeneratorConfig):
+    type: Literal["ollama_generator"] = "ollama_generator"
     ollama_url: HttpUrl = "localhost:11434"
     model: str
 

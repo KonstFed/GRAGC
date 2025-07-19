@@ -49,6 +49,7 @@ def generate_completions(
     os.makedirs(raw_output_dir, exist_ok=True)
 
     test_inference_cfg: EvoCodeBenchInferenceConfig = load_config(EvoCodeBenchInferenceConfig, config_path)
+    test_inference_cfg = test_inference_cfg.inference
     test_inference = test_inference_cfg.create()
     print(f"Loaded {len(test_inference.tasks)} tasks")
     print("-" * 256)
