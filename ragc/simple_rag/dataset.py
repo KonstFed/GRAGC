@@ -121,7 +121,7 @@ class CodeRepoDatasetConfig(BaseModel):
 
     def create(self, repo_name: str) -> CodeRepoDataset:
         _embedder = self.embedder.create()
-        CodeRepoDataset(
+        return CodeRepoDataset(
             repo_paths=repo_name,
             cache_dir=self.cache_path,
             embedder=_embedder,

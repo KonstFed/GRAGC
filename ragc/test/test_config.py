@@ -286,7 +286,6 @@ class SimpleRAGInference:
         task_path: Path,
         repos_path: Path,
     ):
-        SimpleRAGPipeline()
         self.dataset_cfg = dataset_cfg
         self.inference_cfg = pipeline_cfg
 
@@ -332,7 +331,7 @@ class SimpleRAGInferenceConfig(BaseModel):
     repos_path: Path
 
     def create(self) -> SimpleRAGInference:
-        SimpleRAGInference(
+        return SimpleRAGInference(
             dataset_cfg=self.dataset,
             pipeline_cfg=self.pipeline,
             task_path=self.task_path,
