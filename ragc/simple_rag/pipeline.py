@@ -50,7 +50,6 @@ Answer:"""
     def query(self, question: str, top_k=5) -> str:
         chunks = self.retrieve(question, top_k)
         prompt = self._format_prompt(question, chunks)
-        print(prompt)
         output = self.llm.generate(prompt=prompt)
         return output
 
