@@ -2,8 +2,10 @@ from pathlib import Path
 
 import torch
 from torch.utils.data import Dataset
+from pydantic import BaseModel
 
 from ragc.llm.embedding import BaseEmbedder
+from ragc.llm.types import EmbedderConfig
 
 
 class CodeRepoDataset(Dataset):
@@ -113,13 +115,14 @@ class CodeRepoDataset(Dataset):
         }
 
 
-if __name__ == "__main__":
-    fish = "/Users/konstfed/Documents/diplom/RAGC"
-    from ragc.llm.huggingface import HuggingFaceEmbedderConfig
-    embedder = HuggingFaceEmbedderConfig(
-        model_name="microsoft/unixcoder-base",
-        max_batch_size=2,
-        max_length=1024,
-        store_in_gpu=False,
-    )
-    # CodeRepoDataset(fish, Path("/Users/konstfed/Documents/diplom/RAGC/ragc/simple_rag/test_cache"), embedder=)
+class CodeRepoDatasetConfig(BaseModel):
+    cache_path: Path
+    embedder: EmbedderConfig
+
+    def create(self, repo_name: str) -> CodeRepoDataset:
+        _embedder = self.embedder.create()
+        CodeRepoDataset(
+            repo_paths=repo_name,
+            cache_dir=self.cache_path,
+            embedder=_embedder,
+        )

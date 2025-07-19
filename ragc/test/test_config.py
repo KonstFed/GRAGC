@@ -9,6 +9,8 @@ from torch_geometric.data import Data
 from tqdm import tqdm
 
 from ragc.datasets.train_dataset import TorchGraphDataset, TorchGraphDatasetConfig
+from ragc.simple_rag.dataset import CodeRepoDatasetConfig
+from ragc.simple_rag.pipeline import SimpleRAGPipeline, SimpleRAGPipelineConfig
 from ragc.graphs import Node
 from ragc.graphs.transforms import MaskNodes
 from ragc.graphs.utils import pyg_extract_node
@@ -274,3 +276,67 @@ class TestInferenceConfig(BaseModel):
             only_with_cross_file=self.only_with_cross_file,
             use_gold_context=self.use_gold_context,
         )
+
+
+class SimpleRAGInference:
+    def __init__(
+        self,
+        dataset_cfg: CodeRepoDatasetConfig,
+        pipeline_cfg: SimpleRAGPipelineConfig,
+        task_path: Path,
+        repos_path: Path,
+    ):
+        SimpleRAGPipeline()
+        self.dataset_cfg = dataset_cfg
+        self.inference_cfg = pipeline_cfg
+
+        self.repos_path = repos_path
+        self.task_path = task_path
+
+        _task = pd.read_json(task_path, lines=True)
+
+        self.tasks = _task
+
+    def __call__(self, repo_name: str, prompt: str) -> tuple[str, dict]:
+        ds = self.dataset_cfg.create(repo_name=repo_name)
+        inference = self.inference_cfg.create(ds)
+        inference.query(question=prompt)
+        return inference(query=prompt)
+
+    def generate_completion(self, progress_bar: bool = True) -> Iterator[dict[str, str]]:
+        """Pipeline for evocodebench generation."""
+        bar = tqdm(self.tasks.iterrows(), total=len(self.tasks)) if progress_bar else self.tasks.iterrows()
+        for _, task in bar:
+            # namespace = _get_correct_namespace(task["completion_path"], task["project_path"], task["namespace"])
+            repo_name = Path(task["project_path"]).parts[-1]
+            # перенесли внутри SimpleRAGPipeline
+            # prompt = build_prompt(
+            #     task=task,
+            #     repos_path=self.repos_path,
+            # )
+
+            generation = self(repo_name=repo_name, prompt=task)
+            result = {
+                "namespace": task["namespace"],
+                "completion": generation,
+            }
+            yield result
+
+
+class SimpleRAGInferenceConfig(BaseModel):
+    type: Literal["simple_rag_inference"] = "simple_rag_inference"
+    dataset: CodeRepoDatasetConfig
+    pipeline: SimpleRAGPipelineConfig
+
+    task_path: Path
+    repos_path: Path
+
+    def create(self) -> SimpleRAGInference:
+        SimpleRAGInference(
+            dataset_cfg=self.dataset,
+            pipeline_cfg=self.pipeline,
+            task_path=self.task_path,
+            repos_path=self.repos_path,
+        )
+
+EvoCodeBenchInferenceConfig = TestInferenceConfig | SimpleRAGPipeline
