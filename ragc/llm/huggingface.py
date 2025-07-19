@@ -38,7 +38,7 @@ class HuggingFaceEmbedder(BaseEmbedder):
         batch_size = min(self.max_batch_size, len(inputs))
         embeddings = []
 
-        for i in trange(0, len(inputs), batch_size):
+        for i in range(0, len(inputs), batch_size):
             batch = inputs[i : min(i + batch_size, len(inputs))]
             tokenized_inputs = self.tokenizer(
                 batch,
