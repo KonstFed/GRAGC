@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Iterator, Literal, Dict, Union, Any
 
 import pandas as pd
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, field_validator, Field
 from torch_geometric.data import Data
 from tqdm import tqdm
 
@@ -258,6 +258,7 @@ class TestInference:
 
 class TestInferenceConfig(BaseModel):
     """Cached inference for test metrics."""
+    type: Literal["graph_inference"] = "graph_inference"
 
     inference: InferenceConfig
     dataset: TorchGraphDatasetConfig
@@ -337,4 +338,31 @@ class SimpleRAGInferenceConfig(BaseModel):
             repos_path=self.repos_path,
         )
 
-EvoCodeBenchInferenceConfig = TestInferenceConfig | SimpleRAGPipeline
+
+class EvoCodeBenchInferenceConfig(BaseModel):
+    inference: Union[TestInferenceConfig, SimpleRAGInferenceConfig] = Field(
+        description="Either test inference config or RAG pipeline config",
+        discriminator="type"  # Requires a discriminator field in both classes
+    )
+
+    # model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    # @field_validator('inference', mode='before')
+    # def validate_inference(cls, v):
+    #     # Handle dict input for TestInferenceConfig
+    #     if isinstance(v, dict):
+    #         try:
+    #             return TestInferenceConfig.model_validate(v)
+    #         except ValueError:
+    #             pass
+
+    #         try:
+    #             return SimpleRAGInference
+        
+    #     # Already validated instance
+    #     if isinstance(v, (TestInferenceConfig, SimpleRAGPipeline)):
+    #         return v
+            
+    #     raise ValueError(
+    #         f"Expected TestInferenceConfig or SimpleRAGPipeline, got {type(v)}"
+    #     )
