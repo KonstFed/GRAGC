@@ -26,14 +26,14 @@ class HeteroGAT(torch.nn.Module):
             else:
                 layer_conv = self._init_conv_layer(hidden_dim=hidden_dim)
 
-            conv = HeteroConv(layer_conv, aggr="sum")
+            conv = HeteroConv(layer_conv, aggr="mean")
             self.convs.append(conv)
 
         self.proj_map = self._init_projectors(orig_emb_size=orig_emb_size, node_emb_size=out_channels)
 
     def _init_conv_layer(self, hidden_dim: int) -> dict[tuple[str, str, str], torch.nn.Module]:
-        def gat():
-            return GATConv((-1, -1), hidden_dim, heads=self.heads, concat=False, add_self_loops=False)
+        def gat(add_self_loops: bool = False):
+            return GATConv((-1, -1), hidden_dim, heads=self.heads, concat=False, add_self_loops=add_self_loops)
 
         self.file_own_conv = gat()
         self.file_call_conv = gat()
@@ -53,11 +53,11 @@ class HeteroGAT(torch.nn.Module):
             ("CLASS", "OWNER", "CLASS"): self.own_conv,
             ("CLASS", "OWNER", "FUNCTION"): self.own_conv,
             ("FUNCTION", "OWNER", "CLASS"): self.own_conv,
-            ("FUNCTION", "OWNER", "FUNCTION"): self.own_conv,
+            ("FUNCTION", "OWNER", "FUNCTION"): gat(True),
             # call relations
             ("CLASS", "CALL", "FUNCTION"): self.call_conv,
             ("CLASS", "INHERITED", "CLASS"): self.call_conv,
-            ("FUNCTION", "CALL", "FUNCTION"): self.call_conv,
+            ("FUNCTION", "CALL", "FUNCTION"): gat(True),
         }
 
     def _init_projectors(self, orig_emb_size: int, node_emb_size: int) -> dict[tuple[str, str, str], torch.nn.Module]:
