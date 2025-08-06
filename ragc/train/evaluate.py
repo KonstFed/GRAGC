@@ -72,21 +72,20 @@ def get_eval_candidates(graph: Data) -> list[tuple[int, torch.Tensor, torch.Tens
 class RetrievalEvaluator:
     """Performs evaluation on given models."""
 
-    def __init__(self, dataset: TorchGraphDataset, model, transform: BaseTransform | None = None):
+    def __init__(self, dataset: TorchGraphDataset, transform: BaseTransform | None = None):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.dataset = dataset
-        self.model = model
 
         self.transform = transform
         # if transform is None:
 
     @torch.no_grad()
-    def get_simple_evaluation(self, k: int = 5) -> tuple[list[list[int]], list[list[int]]]:
+    def get_simple_evaluation(self, model, k: int = 5) -> tuple[list[list[int]], list[list[int]]]:
         """Get fast and simple retrieval predictions.
 
         This method does not mask any edges.
         """
-        self.model.eval()
+        model.eval()
 
         total_predictions = []
         total_gt = []
@@ -98,7 +97,7 @@ class RetrievalEvaluator:
             # z is N x S
             # N number of nodes
             # S is size of single node embedding
-            z = self.model(graph.x, graph.edge_index)
+            z = model(graph.x, graph.edge_index)
 
             # normalize embeddings for l2 norm
             z = z / torch.norm(z, dim=1, p=2, keepdim=True)
@@ -133,8 +132,9 @@ class RetrievalEvaluator:
         return total_predictions, total_gt
 
     @torch.no_grad()
-    def proper_evaluation(self, k: int = 5, max_candidates_per_graph: int = 10) -> tuple[list[list[int]], list[list[int]]]:
-        self.model.eval()
+    def proper_evaluation(self, encoder, ranker, k: int = 5, max_candidates_per_graph: int = 10) -> tuple[list[list[int]], list[list[int]]]:
+        encoder.eval()
+        ranker.eval()
 
         total_predictions = []
         total_gt = []
@@ -154,18 +154,14 @@ class RetrievalEvaluator:
 
             for predict_node, node_mask, _edge_mask, target_nodes in candidates:
                 eval_graph = graph.subgraph(node_mask)
-                # eval_graph = apply_mask(graph, node_mask, edge_mask)
 
-                # TODO: make proper ranking into model
-                z = self.model(eval_graph.x, eval_graph.edge_index)
-                z = z / torch.norm(z, dim=1, p=2, keepdim=True)
-                # z is N x S, N is number of nodes
-                # node feature embedding is S x 1
-                predict_emb = graph.x[predict_node] / torch.norm(graph.x[predict_node], p=2, keepdim=True)
-                scores = z @ predict_emb
-                _scores, predicted_nodes = torch.topk(scores, k=min(k, graph.num_nodes))
+                z = encoder(eval_graph.x, eval_graph.edge_index)
+                anchor_emb = graph.x[predict_node].repeat(z.shape[0], 1)
+                scores = ranker(anchor_emb, z).squeeze(1)
 
-                # return node ids to global naming
+                _scores, predicted_nodes = torch.topk(scores, k=min(k, eval_graph.num_nodes))
+
+                # # return node ids to global naming
                 map2og = torch.nonzero(node_mask).squeeze()
                 predicted_nodes = map2og[predicted_nodes]
 
@@ -210,10 +206,9 @@ class AccuracyEvaluator(RetrievalEvaluator):
     def __init__(
         self,
         dataset,
-        model,
         transform=None,
     ):
-        super().__init__(dataset, model, transform)
+        super().__init__(dataset, transform)
 
         # maybe pass args
         self.link_split = RandomLinkSplit(
@@ -226,12 +221,13 @@ class AccuracyEvaluator(RetrievalEvaluator):
     @torch.no_grad()
     def _evaluate_single_graph(
         self,
+        model,
         full_graph: Data,
         masked_graph: Data,
         test_graph: Data,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        self.model.eval()
-        z = self.model(masked_graph.x, masked_graph.edge_index)
+        model.eval()
+        z = model(masked_graph.x, masked_graph.edge_index)
         z = F.normalize(z, dim=1)
 
         pos_edge_index = test_graph.edge_index
@@ -246,7 +242,7 @@ class AccuracyEvaluator(RetrievalEvaluator):
         y_score = torch.cat([pos_scores, neg_scores])
         return y_true, y_score
 
-    def evaluate_classification(self) -> dict[str, float]:
+    def evaluate_classification(self, model) -> dict[str, float]:
         """Evaluate model on link prediction in classfication manner.
 
         Split edged in train and test. Mask train and evaluate on test edges.
@@ -262,7 +258,7 @@ class AccuracyEvaluator(RetrievalEvaluator):
             except:
                 print("SKip", i)
                 continue
-            y_true, y_score = self._evaluate_single_graph(graph, masked_graph, test_graph)
+            y_true, y_score = self._evaluate_single_graph(model, graph, masked_graph, test_graph)
             all_y_true.extend(y_true.cpu().tolist())
             all_y_score.extend(y_score.cpu().tolist())
 
@@ -270,5 +266,5 @@ class AccuracyEvaluator(RetrievalEvaluator):
         ap = average_precision_score(all_y_true, all_y_score)
         return {
             "AUC": auc,
-            "Average Precision": ap
+            "Average Precision": ap,
         }

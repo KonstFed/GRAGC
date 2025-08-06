@@ -93,7 +93,7 @@ class Evaluator:
         self.hard_sampler = HardSampler()
         # self.clas_val_loader = DataLoader(class_val_ds, batch_size=batch_size, collate_fn=collate_with_samples, shuffle=False)
 
-    
+
     def validate_retrieval_epoch(self, loader: DataLoader) -> dict[str, float]:
         """Compute retrieval metrics."""
         bar = tqdm(loader)

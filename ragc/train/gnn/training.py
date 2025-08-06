@@ -422,8 +422,8 @@ def train(dataset_path: Path, checkpoint_path: Path, model_params: dict, trainin
     )
 
     # model = HeteroGraphSAGE(768, 768, 768, 3)
-    model = HeteroGraphSAGE(**model_params)
-    #model = HeteroGAT(768, 562, 562, 5, heads=4)
+    # model = HeteroGraphSAGE(**model_params)
+    model = HeteroGAT(768, 562, 562, 5, heads=4)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
     trainer = Trainer(
@@ -477,82 +477,92 @@ def finetune(dataset_path: Path, checkpoint_path: Path, training_params: dict):
     with (checkpoint_path / "test_metrics.json").open("w") as f:
         json.dump(test_metrics, f)
 
+
 if __name__ == "__main__":
     import random
 
     random.seed(100)
     torch.manual_seed(100)
     dataset_path = Path("data/torch_cache/repobench")
-    save_path = Path("data/gnn_weights/experiments")
+    save_path = Path("data/gnn_weights/GAT")
     save_path.mkdir(exist_ok=True, parents=True)
 
 
-    experiments = {
-        "classic_5": {
-            "model_params": {
-                "orig_emb_size": 768,
-                "hidden_dim": 768,
-                "out_channels": 768,
-                "num_layers": 5,
-            },
-            "training_params": {
-                "batch_size": 200,
-                "k": 30,
-                "stop_metric": "mrr",
-            },
-        },
-        "classic_3": {
-            "model_params": {
-                "orig_emb_size": 768,
-                "hidden_dim": 768,
-                "out_channels": 768,
-                "num_layers": 3,
-            },
-            "training_params": {
-                "batch_size": 200,
-                "k": 30,
-                "stop_metric": "mrr",
-            },
-        },
-        "classic_7": {
-            "model_params": {
-                "orig_emb_size": 768,
-                "hidden_dim": 768,
-                "out_channels": 768,
-                "num_layers": 7,
-            },
-            "training_params": {
-                "batch_size": 200,
-                "k": 30,
-                "stop_metric": "mrr",
-            },
-        },
-        "bigger_hidden_emb_5": {
-            "model_params": {
-                "orig_emb_size": 768,
-                "hidden_dim": 1024,
-                "out_channels": 1024,
-                "num_layers": 5,
-            },
-            "training_params": {
-                "batch_size": 10,
-                "k": 5,
-                "stop_metric": "mrr",
-            },
-        },
-    }
+    # experiments = {
+    #     "classic_5": {
+    #         "model_params": {
+    #             "orig_emb_size": 768,
+    #             "hidden_dim": 768,
+    #             "out_channels": 768,
+    #             "num_layers": 5,
+    #         },
+    #         "training_params": {
+    #             "batch_size": 200,
+    #             "k": 30,
+    #             "stop_metric": "mrr",
+    #         },
+    #     },
+    #     "classic_3": {
+    #         "model_params": {
+    #             "orig_emb_size": 768,
+    #             "hidden_dim": 768,
+    #             "out_channels": 768,
+    #             "num_layers": 3,
+    #         },
+    #         "training_params": {
+    #             "batch_size": 200,
+    #             "k": 30,
+    #             "stop_metric": "mrr",
+    #         },
+    #     },
+    #     "classic_7": {
+    #         "model_params": {
+    #             "orig_emb_size": 768,
+    #             "hidden_dim": 768,
+    #             "out_channels": 768,
+    #             "num_layers": 7,
+    #         },
+    #         "training_params": {
+    #             "batch_size": 200,
+    #             "k": 30,
+    #             "stop_metric": "mrr",
+    #         },
+    #     },
+    #     "bigger_hidden_emb_5": {
+    #         "model_params": {
+    #             "orig_emb_size": 768,
+    #             "hidden_dim": 1024,
+    #             "out_channels": 1024,
+    #             "num_layers": 5,
+    #         },
+    #         "training_params": {
+    #             "batch_size": 10,
+    #             "k": 5,
+    #             "stop_metric": "mrr",
+    #         },
+    #     },
+    # }
 
-    for exp, params in experiments.items():
-        print("-" * 20)
-        print(exp)
-        print("-" * 20)
-        print(params)
-        chk_p = save_path / exp
-        chk_p.mkdir(parents=True, exist_ok=True)
-        with open(chk_p / "params.json", "w") as f:
-            json.dump(params, f)
-        train(dataset_path, chk_p, model_params=params["model_params"], training_params=params["training_params"],)
-        finetune(dataset_path, chk_p, training_params=params["training_params"],)
+    # for exp, params in experiments.items():
+        # print("-" * 20)
+        # print(exp)
+        # print("-" * 20)
+        # print(params)
+        # chk_p = save_path / exp
+        # chk_p.mkdir(parents=True, exist_ok=True)
+        # with open(chk_p / "params.json", "w") as f:
+        #     json.dump(params, f)
+        # train(dataset_path, chk_p, model_params=params["model_params"], training_params=params["training_params"],)
+        # finetune(dataset_path, chk_p, training_params=params["training_params"],)
 
     # train(dataset_path, save_path)
     # # finetune(dataset_path, save_path)
+
+
+    training_params = {
+        "batch_size": 200,
+        "k": 30,
+        "stop_metric": "mrr",
+    }
+    train(dataset_path, save_path, model_params=None, training_params=training_params,)
+    finetune(dataset_path, save_path, training_params=training_params,)
