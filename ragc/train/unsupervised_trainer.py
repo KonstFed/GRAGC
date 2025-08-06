@@ -29,6 +29,7 @@ class UnsupervisedTrainingConfig(BaseModel):
     batch_size: int
     lr_rate: float = 1e-4
     split_ratios: list[int] = [0.7, 0.15, 0.15]
+    pos_sample_ratio: float
 
     # evaluation settings
     k: int
@@ -38,9 +39,12 @@ class UnsupervisedTrainingConfig(BaseModel):
 
 class UnsupervisedTrainer:
     def __init__(self, model: GATv2Encoder, dataset: TorchGraphDataset, config: UnsupervisedTrainingConfig):
+        fix_seed(config.seed)
+
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = model
+        self.model.to(self.device)
 
         self.train_transform = Compose([ToRelationGraph(), NormalizeEmbeddings(), ManageDirection(), AddSelfLoops()])
         self.pre_sample_eval_transform = Compose([ToRelationGraph(), NormalizeEmbeddings()])
@@ -71,8 +75,7 @@ class UnsupervisedTrainer:
 
         self.optimizer = torch.optim.Adam(model.parameters(), lr=config.lr_rate)
         self.best_target_metric = -float("inf")
-
-        fix_seed(config.seed)
+        self.best_loss = float("inf")
 
     def compute_cross_entropy_loss(self, batched_graph: Data) -> torch.Tensor:
         batched_graph = batched_graph.to(self.device)
@@ -80,14 +83,18 @@ class UnsupervisedTrainer:
         z = self.model(x, edge_index)
 
         # Positive edges
-        # TODO: possibly we need to sample to remove noise
         pos_edge_index = edge_index
+        num_pos_edges = pos_edge_index.size(1)
+        sample_size = int(num_pos_edges * self.config.pos_sample_ratio)
+        if sample_size < num_pos_edges:
+            indices = torch.randperm(num_pos_edges, device=self.device)[:sample_size]
+            pos_edge_index = pos_edge_index[:, indices]
 
         # Negative edges
         neg_edge_index = negative_sampling(
             edge_index=edge_index,
             num_nodes=x.size(0),
-            num_neg_samples=edge_index.size(1),
+            num_neg_samples=pos_edge_index.size(1),
         )
 
         # Compute dot products
@@ -130,6 +137,11 @@ class UnsupervisedTrainer:
             torch.save(model.state_dict(), self.config.checkpoint_save_path / "encoder_best_validation.pth")
             self.best_target_metric = target_metric
 
+        if total_loss < self.best_loss:
+            self.best_loss = total_loss
+            torch.save(model.state_dict(), self.config.checkpoint_save_path / "encoder_best_loss.pth")
+
+
         print(f"Best validation {self.config.target_retrieval_metric}: {self.best_target_metric}")
 
     def train(self) -> None:
@@ -146,7 +158,7 @@ if __name__ == "__main__":
         hidden_channels=768,
         out_channels=768,
         num_layers=2,
-        heads=2,
+        heads=4,
     )
 
     model = encoder_cfg.create()
@@ -161,10 +173,11 @@ if __name__ == "__main__":
         n_epochs=20,
         k=5,
         seed=1661,
+        pos_sample_ratio=0.3,
     )
 
     dataset = TorchGraphDataset(
-        root="/Users/konstfed/Documents/diplom/RAGC/data/torch_cache/repobench",
+        root="data/repobench_cache/repobench",
     )
 
     trainer = UnsupervisedTrainer(

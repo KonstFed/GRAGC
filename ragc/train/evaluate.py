@@ -154,10 +154,13 @@ class RetrievalEvaluator:
 
             for predict_node, node_mask, _edge_mask, target_nodes in candidates:
                 eval_graph = graph.subgraph(node_mask)
+                eval_graph = eval_graph.to(self.device)
 
                 z = encoder(eval_graph.x, eval_graph.edge_index)
                 anchor_emb = graph.x[predict_node].repeat(z.shape[0], 1)
+                anchor_emb = anchor_emb.to(self.device)
                 scores = ranker(anchor_emb, z).squeeze(1)
+                scores = scores.cpu()
 
                 _scores, predicted_nodes = torch.topk(scores, k=min(k, eval_graph.num_nodes))
 

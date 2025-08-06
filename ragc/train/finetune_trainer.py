@@ -32,6 +32,8 @@ class FinetuneTrainer:
         dataset: TorchGraphDataset,
         config: UnsupervisedTrainingConfig,
     ):
+        fix_seed(config.seed)
+
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -71,7 +73,6 @@ class FinetuneTrainer:
         self.best_target_metric = -float("inf")
 
         self.bce_loss = BCEWithLogitsLoss()
-        fix_seed(config.seed)
 
     def compute_crude_loss(self, batched_graph: Data) -> torch.Tensor:
         batched_graph = batched_graph.to(self.device)
@@ -92,6 +93,7 @@ class FinetuneTrainer:
         embs = torch.cat([z[pos_edge_index[1]], z[neg_edge_index[1]]], dim=0)
         labels = torch.cat([torch.ones(pos_edge_index.shape[1]),
                             torch.zeros(neg_edge_index.shape[1])]).view(-1, 1)
+        labels = labels.to(self.device)
 
         # we will compute score with every node in graph
         scores = self.model(anchor_embs, embs)
@@ -153,12 +155,12 @@ if __name__ == "__main__":
         hidden_channels=768,
         out_channels=768,
         num_layers=2,
-        heads=2,
+        heads=4,
     )
 
     encoder = encoder_cfg.create()
 
-    encoder.load_state_dict(torch.load(checkpoints_path / "best_validation_encoder.pth", map_location="cpu"))
+    encoder.load_state_dict(torch.load(checkpoints_path / "encoder_best_loss.pth", map_location="cpu"))
     ranker = MLPRanker(
         query_emb_size=768,
         node_emb_size=768,
@@ -172,10 +174,11 @@ if __name__ == "__main__":
         n_epochs=20,
         k=5,
         seed=1661,
+        pos_sample_ratio=0.3,
     )
 
     dataset = TorchGraphDataset(
-        root="/Users/konstfed/Documents/diplom/RAGC/data/torch_cache/repobench",
+        root="data/repobench_cache/repobench",
     )
 
     trainer = FinetuneTrainer(
