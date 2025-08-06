@@ -1,6 +1,10 @@
 from pathlib import Path
+import random
+import os
 
 import yaml
+import numpy as np
+import torch
 from pydantic import BaseModel
 
 
@@ -27,3 +31,24 @@ def save_config(model: BaseModel, cfg_p: Path | str) -> None:
     # Write the dictionary to a YAML file
     with cfg_p.open("w") as f:
         yaml.safe_dump(model_dict, f, default_flow_style=False, sort_keys=False)
+
+
+def fix_seed(seed: int = 42) -> None:
+    """Fix all random seeds for reproducibility across."""
+    # Python random
+    random.seed(seed)
+
+    # Python hash seed
+    os.environ["PYTHONHASHSEED"] = str(seed)
+
+    # NumPy
+    np.random.seed(seed)
+
+    # PyTorch
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # for multi-GPU
+
+    # Ensure deterministic behavior in cuDNN
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False

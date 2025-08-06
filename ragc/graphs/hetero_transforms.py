@@ -5,6 +5,7 @@ import torch
 from torch_geometric.data import Data, HeteroData
 from torch_geometric.transforms import BaseTransform
 from torch_geometric.utils import coalesce, remove_self_loops
+from torch_geometric.utils import add_self_loops
 
 from ragc.graphs.common import EdgeTypeNumeric, NodeTypeNumeric
 from ragc.graphs.transforms import BaseTransformConfig
@@ -70,7 +71,7 @@ class ToHetero(BaseTransform, BaseTransformConfig):
             h_graph[node_type.name].signature = [graph.signature[i] for i in node_idx]
             h_graph[node_type.name].docstring = [graph.docstring[i] for i in node_idx]
             h_graph[node_type.name].name = [graph.name[i] for i in node_idx]
-            
+
             if has_docstring:
                 h_graph[node_type.name].query_emb = graph.docstring_embeddings[node_mask]
                 h_graph[node_type.name].docstring_mask = docstring_mask[node_mask]
@@ -120,7 +121,12 @@ class RemoveExcessInfo(BaseTransform):
         data = data.coalesce()
 
         for edge_type in data.edge_types:
-            data[edge_type].edge_index, _ = remove_self_loops(data[edge_type].edge_index)
+            if data[edge_type].edge_index.shape[1] == 0:
+                del data[edge_type]
+
+        # TODO: keep self_loops
+        # for edge_type in data.edge_types:
+        #     data[edge_type].edge_index, _ = remove_self_loops(data[edge_type].edge_index)
 
         return data
 
@@ -152,6 +158,8 @@ class InitFileEmbeddings(BaseTransform):
         new_file_embeddings = torch.zeros_like(graph["FILE"].x)
         n_elements = torch.zeros(graph["FILE"].num_nodes, dtype=torch.long)
         for edge_type, callee_type in links:
+            if ("FILE", edge_type, callee_type) not in graph:
+                continue
             c_edge_index = graph["FILE", edge_type, callee_type]["edge_index"]
 
             if only_nodes is not None:
@@ -197,4 +205,14 @@ class InitFileEmbeddings(BaseTransform):
             embs = InitFileEmbeddings.init_by_normal(len(not_init_idx), data["FILE"].x.shape[1])
             data["FILE"].x[not_init_idx] = embs
 
+        return data
+
+
+class NormEmbeddings(BaseTransform):
+    def forward(self, data: HeteroData) -> HeteroData:
+        for node_type in data.node_types:
+            x = data[node_type].x
+            norm = x.norm(p=2, dim=1, keepdim=True)
+            norm = norm.clamp(min=1e-8)  # Prevent division by zero
+            data[node_type].x = x / norm
         return data
