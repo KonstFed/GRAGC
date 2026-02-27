@@ -477,6 +477,7 @@ def finetune(dataset_path: Path, checkpoint_path: Path, training_params: dict):
     with (checkpoint_path / "test_metrics.json").open("w") as f:
         json.dump(test_metrics, f)
 
+
 if __name__ == "__main__":
     import random
 
@@ -488,19 +489,19 @@ if __name__ == "__main__":
 
 
     experiments = {
-        "classic_5": {
-            "model_params": {
-                "orig_emb_size": 768,
-                "hidden_dim": 768,
-                "out_channels": 768,
-                "num_layers": 5,
-            },
-            "training_params": {
-                "batch_size": 200,
-                "k": 30,
-                "stop_metric": "mrr",
-            },
-        },
+        # "classic_5": {
+        #     "model_params": {
+        #         "orig_emb_size": 768,
+        #         "hidden_dim": 768,
+        #         "out_channels": 768,
+        #         "num_layers": 5,
+        #     },
+        #     "training_params": {
+        #         "batch_size": 200,
+        #         "k": 30,
+        #         "stop_metric": "mrr",
+        #     },
+        # },
         "classic_3": {
             "model_params": {
                 "orig_emb_size": 768,
@@ -514,32 +515,32 @@ if __name__ == "__main__":
                 "stop_metric": "mrr",
             },
         },
-        "classic_7": {
-            "model_params": {
-                "orig_emb_size": 768,
-                "hidden_dim": 768,
-                "out_channels": 768,
-                "num_layers": 7,
-            },
-            "training_params": {
-                "batch_size": 200,
-                "k": 30,
-                "stop_metric": "mrr",
-            },
-        },
-        "bigger_hidden_emb_5": {
-            "model_params": {
-                "orig_emb_size": 768,
-                "hidden_dim": 1024,
-                "out_channels": 1024,
-                "num_layers": 5,
-            },
-            "training_params": {
-                "batch_size": 10,
-                "k": 5,
-                "stop_metric": "mrr",
-            },
-        },
+        # "classic_7": {
+        #     "model_params": {
+        #         "orig_emb_size": 768,
+        #         "hidden_dim": 768,
+        #         "out_channels": 768,
+        #         "num_layers": 7,
+        #     },
+        #     "training_params": {
+        #         "batch_size": 200,
+        #         "k": 30,
+        #         "stop_metric": "mrr",
+        #     },
+        # },
+        # "bigger_hidden_emb_5": {
+        #     "model_params": {
+        #         "orig_emb_size": 768,
+        #         "hidden_dim": 1024,
+        #         "out_channels": 1024,
+        #         "num_layers": 5,
+        #     },
+        #     "training_params": {
+        #         "batch_size": 10,
+        #         "k": 5,
+        #         "stop_metric": "mrr",
+        #     },
+        # },
     }
 
     for exp, params in experiments.items():
