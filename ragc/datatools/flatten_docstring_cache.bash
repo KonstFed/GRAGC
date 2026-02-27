@@ -16,6 +16,14 @@ if [[ -n "${ZIP_PATH}" ]]; then
   echo "Extracting '${ZIP_PATH}' into '${SRC_ROOT}'..."
   mkdir -p "${SRC_ROOT}"
   unzip -q -o "${ZIP_PATH}" -d "${SRC_ROOT}"
+  # If zip had a single top-level dir (e.g. docstring_cache), use it as source
+  shopt -s nullglob
+  one_dir=( "${SRC_ROOT}"/*/ )
+  if [[ ${#one_dir[@]} -eq 1 ]]; then
+    SRC_ROOT="${one_dir[0]%/}"
+    echo "Using extracted folder '${SRC_ROOT}' as source."
+  fi
+  shopt -u nullglob
 fi
 
 mkdir -p "${DST_ROOT}"
