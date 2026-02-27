@@ -8,3 +8,4 @@ pre_transform:
     max_batch_size: 256
     max_length: 1024
     store_in_gpu: true
+  embed_docstring: true
