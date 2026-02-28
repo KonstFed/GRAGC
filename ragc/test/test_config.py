@@ -39,31 +39,26 @@ def gpt_prompt(
     requirement: dict[str, str],
     completion_type: Literal["function", "method"],
 ) -> str:
-    requirement_str = "\n".join([f"- **{key}**: {value}" for key, value in requirement.items()])
-    prompt = f"""# TASK
+    requirement_str = "\n".join([f"{k}: {v}" for k, v in requirement.items()])
+    func_name = signature.split("(")[0].strip().split()[-1]  # crude but ok if signature is "def name(...):"
 
-You are to generate a Python {completion_type} implementation that strictly follows the instructions below. Return ONLY the code inside a ```python ``` block, no explanations. Do not forget about imports.
+    prompt = f"""
+You are a code generator. Output must follow the contract exactly.
 
-## Context Usage
-
-Any supplementary context provided is retrieved automatically.
-You should use it only if it is directly relevant and improves the implementation.
-Disregard irrelevant or conflicting information.
-
-## File Location
-
-- **Path**: `{completion_path}`
-- **Namespace**: `{namespace}`
-
-## Requirements
-
-{requirement_str}
-
-## Signature to Implement
-
+CONTRACT
+- Output exactly one fenced code block starting with ```python and ending with ```.
+- Inside the code block, output ONLY the Python {completion_type} named {func_name}.
+- Do NOT include imports, tests, helper functions, comments, docstrings, or any text outside the function.
+- The signature must match exactly:
 {signature}
 
-Your code here:\n"""
+CONTEXT
+Path: {completion_path}
+Namespace: {namespace}
+
+REQUIREMENTS
+{requirement_str}
+""".strip()
     return prompt
 
 
