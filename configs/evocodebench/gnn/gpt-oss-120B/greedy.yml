@@ -1,0 +1,31 @@
+inference:
+  parser:
+    cache_path: null
+    type: python_parser
+  query_embedder:
+    type: hugging_face
+    model_name: microsoft/unixcoder-base
+    max_batch_size: 256
+    max_length: 1024
+    store_in_gpu: false
+  retrieval:
+    type: gnn
+    k: 5
+    model_path: /home/jovyan/work/diplom/RAGC/models/gnn/BEST_CHECKPOINT.pt
+  fusion:
+    type: augmentation
+    generator:
+      type: openai_chat
+      model: gpt-oss-120b
+      base_url: "https://openrouter.ai/api/v1"
+      local_context_lines: 0
+dataset:
+  root_path: data/torch_cache/evocodebench
+  repos_path: null
+  graphs_path: null
+  parser: null
+  pre_transform: null
+  transform: null
+task_path: /home/jovyan/work/diplom/EvoCodeBenchPlus/dataset/data/oracle.jsonl
+repos_path: /home/jovyan/work/diplom/EvoCodeBenchPlus/dataset/repos
+only_with_cross_file: false
