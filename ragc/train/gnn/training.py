@@ -512,7 +512,7 @@ if __name__ == "__main__":
             "training_params": {
                 "batch_size": 200,
                 "k": 30,
-                "stop_metric": "mrr",
+                "stop_metric": "recall",
             },
         },
         # "classic_7": {
