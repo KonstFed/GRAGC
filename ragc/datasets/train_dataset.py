@@ -84,19 +84,29 @@ class TorchGraphDatasetConfig(BaseModel):
 
         return self
 
-    def _parse_graphs(self, repos2parse: list[Path]) -> tuple[list[nx.MultiDiGraph], str]:
-        """Parse graphs from repo."""
+    def _parse_graphs(self, repos2parse: list[Path]) -> tuple[list[nx.MultiDiGraph], list[str]]:
+        """Parse graphs from repo. Logs all failed repos at the end."""
         parser = self.parser.create()
         graphs = []
         repo_names = []
+        failed: list[tuple[Path, BaseException]] = []
         for repo_p in repos2parse:
             try:
                 graph = parser.parse(repo_path=repo_p)
                 graphs.append(graph)
                 repo_names.append(repo_p.name)
             except Exception as e:
-                _wrn_msg = f"Failed to parse {repo_p.absolute()} with error:\n{e}"
-                warnings.warn(_wrn_msg, stacklevel=1)
+                failed.append((repo_p, e))
+                warnings.warn(
+                    f"Failed to parse {repo_p.absolute()} with error:\n{e}",
+                    stacklevel=1,
+                )
+        if failed:
+            print("\nRepos that failed to parse:", flush=True)  # noqa: T201
+            for repo_p, err in failed:
+                print(f"  {repo_p.absolute()}", flush=True)  # noqa: T201
+                print(f"    -> {err!r}", flush=True)  # noqa: T201
+            print(f"Total failed: {len(failed)} / {len(repos2parse)}\n", flush=True)  # noqa: T201
         return graphs, repo_names
 
     def _load_graphs(self) -> list[nx.MultiDiGraph]:
