@@ -11,7 +11,7 @@ inference:
   retrieval:
     type: gnn
     k: 5
-    model_path: /home/jovyan/work/diplom/RAGC/models/gnn/BEST_CHECKPOINT.pt
+    model_path: BEST_CHECKPOINT.pt
   fusion:
     type: augmentation
     generator:
@@ -36,6 +36,6 @@ dataset:
   parser: null
   pre_transform: null
   transform: null
-task_path: /home/jovyan/work/diplom/EvoCodeBenchPlus/dataset/data/oracle.jsonl
-repos_path: /home/jovyan/work/diplom/EvoCodeBenchPlus/dataset/repos
+task_path: /home/jovyan/work/gracgj/EvoCodeBenchPlus/dataset/data/oracle.jsonl
+repos_path: /home/jovyan/work/gracgj/EvoCodeBenchPlus/dataset/repos
 only_with_cross_file: false
