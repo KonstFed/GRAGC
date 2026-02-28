@@ -19,7 +19,7 @@ inference:
       model: gpt-oss-120b
       base_url: "https://openrouter.ai/api/v1"
       local_context_lines: 0
-      system_message: |
+      system_message:
         You are a code generator. Output must follow the contract exactly.
 
         CONTRACT
