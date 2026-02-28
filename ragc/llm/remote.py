@@ -114,8 +114,15 @@ class OpenAIChatGenerator(AugmentedGenerator):
             prompt = _build_prompt_from_query_and_nodes(
                 query, relevant_nodes, local_context_lines=self._local_context_lines,
             )
+
+        print("----------SYSTEM MESSAGE-------------------")
+        print(self._system_message)
         print("--------------------------------")
+        print("----------PROMPT-------------------")
         print(prompt)
+        print("--------------------------------")
+        print("----------RELEVANT NODES-------------------")
+        print(relevant_nodes)
         print("--------------------------------")
         messages = []
         if self._system_message:
