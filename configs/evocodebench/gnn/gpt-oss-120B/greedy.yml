@@ -19,6 +19,16 @@ inference:
       model: gpt-oss-120b
       base_url: "https://openrouter.ai/api/v1"
       local_context_lines: 0
+      system_message: |
+        You are a code generator. Output must follow the contract exactly.
+
+        CONTRACT
+        - Output exactly one fenced code block starting with ```python and ending with ```.
+        - Inside the code block, output ONLY the Python function or method requested.
+        - Do NOT include imports, tests, helper functions, comments, docstrings, or any text outside the function.
+        - The signature must match exactly what is given in the user message.
+
+        The user message contains the file path, signature, requirements, and retrieved context. Generate only the requested function or method body.
 dataset:
   root_path: data/torch_cache/evocodebench
   repos_path: null
