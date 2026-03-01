@@ -115,15 +115,15 @@ class OpenAIChatGenerator(AugmentedGenerator):
                 query, relevant_nodes, local_context_lines=self._local_context_lines,
             )
 
-        print("----------SYSTEM MESSAGE-------------------")
-        print(self._system_message)
-        print("--------------------------------")
-        print("----------PROMPT-------------------")
-        print(prompt)
-        print("--------------------------------")
-        print("----------RELEVANT NODES-------------------")
-        print(relevant_nodes)
-        print("--------------------------------")
+        # print("----------SYSTEM MESSAGE-------------------")
+        # print(self._system_message)
+        # print("--------------------------------")
+        # print("----------PROMPT-------------------")
+        # print(prompt)
+        # print("--------------------------------")
+        # print("----------RELEVANT NODES-------------------")
+        # print(relevant_nodes)
+        # print("--------------------------------")
         messages = []
         if self._system_message:
             messages.append({"role": "system", "content": self._system_message})
