@@ -1,0 +1,17 @@
+root_path: data/torch_cache/swe_qa_bench
+repos_path: null
+graphs_path: null
+parser:
+  cache_path: null
+  type: python_parser
+pre_transform:
+- type: to_pyg
+- type: embed_transform
+  embedder:
+    model_name: microsoft/unixcoder-base
+    max_batch_size: 256
+    max_length: 1024
+    store_in_gpu: true
+  embed_docstring: true
+
+transform: null
