@@ -1,3 +1,4 @@
+import ast
 import warnings
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -6,6 +7,21 @@ from typing import Literal
 import networkx as nx
 import black
 from semantic_parser import SemanticGraphBuilder
+
+# --- monkey-patch code2flow to handle all AST call-target types gracefully ---
+import code2flow.python as _c2f_py
+
+_c2f_orig_get_call = _c2f_py.get_call_from_func_element
+
+
+def _patched_get_call_from_func_element(func):
+    if type(func) not in (ast.Attribute, ast.Name, ast.Subscript, ast.Call):
+        return None
+    return _c2f_orig_get_call(func)
+
+
+_c2f_py.get_call_from_func_element = _patched_get_call_from_func_element
+# --- end monkey-patch ---
 
 from ragc.graphs.common import (
     BaseGraphParser,
@@ -62,7 +78,7 @@ class SemanticParser(BaseGraphParser):
         new_values = {}
         for node in file_nodes:
             attr = graph.nodes(data=True)[node]
-            with (repo_path / attr["file_path"]).open("r") as f:
+            with (repo_path / attr["file_path"]).open("r", errors="replace") as f:
                 file_code = f.read()
 
             if "body" in graph.nodes(data=True)[node]:
