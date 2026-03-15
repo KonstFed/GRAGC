@@ -9,14 +9,12 @@ inference:
     max_length: 1024
     store_in_gpu: false
   retrieval:
-    type: gnn
-    k: 5
-    model_path: BEST_CHECKPOINT.pt
+    type: no_retrieval
   fusion:
     type: augmentation
     generator:
       type: openai_chat
-      model: qwen/qwen3-coder-480b-a35b-instruct
+      model: moonshotai/kimi-k2-5
       base_url: "https://openrouter.ai/api/v1"
       local_context_lines: 0
       system_message:
