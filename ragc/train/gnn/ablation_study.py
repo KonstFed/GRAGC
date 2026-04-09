@@ -37,9 +37,9 @@ from ragc.train.gnn.train_transforms import (
 )
 
 
-MAX_K = 200
+MAX_K = 30
 
-K_VALUES = [1, 3, 5, 10, 15, 20, 30, 50, 75, 100, 150, 200]
+K_VALUES = [1, 3, 5, 10, 15, 20, 30]
 
 
 def compute_metrics_at_k(
