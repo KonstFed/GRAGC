@@ -23,7 +23,7 @@ CONFIGS_DIR = ROOT / "configs" / "evocodebench"
 OUTPUTS_DIR = ROOT / "outputs" / "evocodebench"
 LOGS_DIR = ROOT / "logs" / "evocodebench"
 
-MODES = ["gnn", "local_context", "without_context"]
+MODES = ["gnn", "local_context", "gnn_local_context", "without_context"]
 
 
 def discover_configs(modes: list[str], models: list[str] | None = None) -> list[tuple[str, Path]]:
