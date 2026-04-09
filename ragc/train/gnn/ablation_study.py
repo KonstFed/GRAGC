@@ -341,6 +341,7 @@ class AblationEvaluator:
             ax.set_xticks(K_VALUES)
             ax.set_xticklabels([str(k) for k in K_VALUES])
             ax.tick_params(axis="x", rotation=45)
+            ax.set_ylim(bottom=0)
 
         fig.tight_layout()
         plot_path = output_path / "metrics_at_k.png"
