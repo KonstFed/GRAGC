@@ -19,6 +19,7 @@ import random
 from pathlib import Path
 from collections import defaultdict
 
+import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
@@ -33,6 +34,31 @@ from ragc.train.gnn.train_transforms import (
     SampleCallPairsSubgraph,
     SampleDocstringPairsSubgraph,
 )
+
+
+MAX_K = 200
+
+K_VALUES = [1, 3, 5, 10, 15, 20, 30, 50, 75, 100, 150, 200]
+
+
+def compute_recall_at_k(actual: list[list[int]], predicted: list[list], k: int) -> float:
+    """Compute recall@k from ranked lists retrieved at max_k >= k."""
+    recalls = []
+    for actual_nodes, pred_nodes in zip(actual, predicted, strict=True):
+        if isinstance(pred_nodes, torch.Tensor):
+            pred_nodes = pred_nodes.tolist()
+        top_k = pred_nodes[:k]
+        tp = len(set(actual_nodes).intersection(top_k))
+        recall = tp / len(actual_nodes) if actual_nodes else 0
+        recalls.append(recall)
+    return sum(recalls) / len(recalls) if recalls else 0
+
+
+def compute_recall_at_k_curve(
+    actual: list[list[int]], predicted: list[list], k_values: list[int] = K_VALUES,
+) -> dict[int, float]:
+    """Compute recall@k for multiple k values from ranked lists."""
+    return {k: compute_recall_at_k(actual, predicted, k) for k in k_values}
 
 
 def compute_metrics(actual: list[list[int]], predicted: list[list[int]]) -> dict[str, float]:
@@ -66,7 +92,6 @@ class AblationEvaluator:
     def __init__(
         self,
         dataset: TorchGraphDataset,
-        model_path: Path | None,
         batch_size: int,
         retrieve_k: int,
         docstring: bool = True,
@@ -74,12 +99,7 @@ class AblationEvaluator:
         self.retrieve_k = retrieve_k
         self.docstring = docstring
         self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-
-        if model_path and model_path.exists():
-            self.model = torch.load(model_path, weights_only=False, map_location=self.device)
-            self.model.eval()
-        else:
-            self.model = None
+        self.model = None
 
         val_transform = Compose([
             ToHetero(),
@@ -100,6 +120,10 @@ class AblationEvaluator:
             self.test_ds, batch_size=batch_size,
             collate_fn=collate_for_validation, shuffle=False,
         )
+
+    def load_model(self, model_path: Path) -> None:
+        self.model = torch.load(model_path, weights_only=False, map_location=self.device)
+        self.model.eval()
 
     def _get_pairs(self, batched_graph):
         """Extract query embeddings and actual relevant pairs."""
@@ -198,6 +222,74 @@ class AblationEvaluator:
                 actual_all.extend(c_actual)
                 predicted_all.extend(pred)
         return compute_metrics(actual_all, predicted_all)
+
+    def _collect_ranked_knn(self) -> tuple[list[list[int]], list[list]]:
+        """Collect KNN ranked lists at MAX_K."""
+        actual_all, predicted_all = [], []
+        for batched_graph in tqdm(self.test_loader, desc="KNN ranked lists"):
+            batched_graph.to(self.device)
+            query_embs, c_actual = self._get_pairs(batched_graph)
+            if query_embs is None:
+                continue
+            candidates = F.normalize(batched_graph["FUNCTION"].x, p=2, dim=1)
+            queries = F.normalize(query_embs, p=2, dim=1)
+            sim = queries @ candidates.T
+            pred = self._topk(sim, MAX_K)
+            actual_all.extend(c_actual)
+            predicted_all.extend(pred)
+        return actual_all, predicted_all
+
+    def _collect_ranked_full_gnn(self) -> tuple[list[list[int]], list[list]]:
+        """Collect full GNN ranked lists at MAX_K."""
+        assert self.model is not None
+        actual_all, predicted_all = [], []
+        with torch.no_grad():
+            for batched_graph in tqdm(self.test_loader, desc="GNN ranked lists"):
+                batched_graph.to(self.device)
+                query_embs, c_actual = self._get_pairs(batched_graph)
+                if query_embs is None:
+                    continue
+                node_embs = self.model(batched_graph.x_dict, batched_graph.edge_index_dict)
+                pred = self.model.retrieve(
+                    batched_graph, node_embs["FUNCTION"], query_embs,
+                    batched_graph.init_embs_ptr, k=MAX_K,
+                )
+                actual_all.extend(c_actual)
+                predicted_all.extend(pred)
+        return actual_all, predicted_all
+
+    def plot_recall_at_k(self, output_path: Path) -> dict[str, dict[int, float]]:
+        """Plot recall@k curves for KNN and GNN (if model loaded)."""
+        curves = {}
+
+        actual_knn, pred_knn = self._collect_ranked_knn()
+        curves["KNN"] = compute_recall_at_k_curve(actual_knn, pred_knn)
+
+        if self.model is not None:
+            actual_gnn, pred_gnn = self._collect_ranked_full_gnn()
+            curves["GNN"] = compute_recall_at_k_curve(actual_gnn, pred_gnn)
+
+        plt.figure(figsize=(10, 6))
+        for label, curve in curves.items():
+            ks = sorted(curve.keys())
+            recalls = [curve[k] for k in ks]
+            plt.plot(ks, recalls, marker="o", label=label)
+
+        plt.xlabel("k")
+        plt.ylabel("Recall@k")
+        plt.title("Recall@k: KNN vs GNN")
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.xticks(K_VALUES, rotation=45)
+        plt.tight_layout()
+
+        output_path.mkdir(parents=True, exist_ok=True)
+        plot_path = output_path / "recall_at_k.png"
+        plt.savefig(plot_path, dpi=150)
+        plt.close()
+        print(f"Plot saved to {plot_path}")
+
+        return curves
 
     def eval_rank_analysis(self) -> dict:
         """E) Analyze what GNN retrieval favors: node degree, position, etc."""
@@ -302,36 +394,48 @@ def run_ablation(
     print("DOCSTRING EVALUATION (finetune scenario)")
     print("=" * 60)
 
+    # Create evaluator once for docstring mode — single split
+    doc_evaluator = AblationEvaluator(ds, batch_size, retrieve_k, docstring=True)
+
     # A) KNN baseline
     print("\n--- A) KNN Baseline (raw embeddings) ---")
-    evaluator = AblationEvaluator(ds, None, batch_size, retrieve_k, docstring=True)
-    results["docstring_knn_baseline"] = evaluator.eval_knn_baseline()
+    results["docstring_knn_baseline"] = doc_evaluator.eval_knn_baseline()
     print(results["docstring_knn_baseline"])
 
     if finetune_model_path and finetune_model_path.exists():
         print(f"\nUsing finetuned model: {finetune_model_path}")
+        doc_evaluator.load_model(finetune_model_path)
 
         # B) GNN no projector
         print("\n--- B) GNN embeddings, no projector ---")
-        evaluator = AblationEvaluator(ds, finetune_model_path, batch_size, retrieve_k, docstring=True)
-        results["docstring_gnn_no_proj"] = evaluator.eval_gnn_no_projector()
+        results["docstring_gnn_no_proj"] = doc_evaluator.eval_gnn_no_projector()
         print(results["docstring_gnn_no_proj"])
 
         # C) Projector only (no GNN)
         print("\n--- C) Projector only (raw embs + projector) ---")
-        results["docstring_proj_only"] = evaluator.eval_projector_only()
+        results["docstring_proj_only"] = doc_evaluator.eval_projector_only()
         print(results["docstring_proj_only"])
 
         # D) Full GNN
         print("\n--- D) Full GNN (GNN + projector) ---")
-        results["docstring_full_gnn"] = evaluator.eval_full_gnn()
+        results["docstring_full_gnn"] = doc_evaluator.eval_full_gnn()
         print(results["docstring_full_gnn"])
 
         # E) Rank analysis
         print("\n--- E) Rank analysis (node degree bias) ---")
-        results["docstring_rank_analysis"] = evaluator.eval_rank_analysis()
+        results["docstring_rank_analysis"] = doc_evaluator.eval_rank_analysis()
         print(json.dumps(results["docstring_rank_analysis"], indent=2))
-    else:
+
+    # F) Recall@k curve (works with or without model)
+    print("\n--- F) Recall@k curve (k=1..200) ---")
+    recall_curves = doc_evaluator.plot_recall_at_k(output_path)
+    results["recall_at_k_curves"] = {label: {str(k): v for k, v in curve.items()} for label, curve in recall_curves.items()}
+    for label, curve in recall_curves.items():
+        print(f"  {label}:")
+        for k, v in sorted(curve.items()):
+            print(f"    recall@{k:>3d}: {v:.4f}")
+
+    if not (finetune_model_path and finetune_model_path.exists()):
         print(f"\nNo finetuned model found at {finetune_model_path}, skipping GNN ablations.")
         print("Train first: python -m ragc.train.gnn.training")
 
@@ -340,15 +444,19 @@ def run_ablation(
     print("CODE CALL EVALUATION (pretrain scenario, for comparison)")
     print("=" * 60)
 
+    # Re-seed so code split is deterministic regardless of docstring ablations above
+    random.seed(100)
+    torch.manual_seed(100)
+    code_evaluator = AblationEvaluator(ds, batch_size, retrieve_k, docstring=False)
+
     print("\n--- A) KNN Baseline (raw embeddings, code queries) ---")
-    evaluator = AblationEvaluator(ds, None, batch_size, retrieve_k, docstring=False)
-    results["code_knn_baseline"] = evaluator.eval_knn_baseline()
+    results["code_knn_baseline"] = code_evaluator.eval_knn_baseline()
     print(results["code_knn_baseline"])
 
     if pretrain_model_path and pretrain_model_path.exists():
         print("\n--- D) Full GNN (code queries) ---")
-        evaluator = AblationEvaluator(ds, pretrain_model_path, batch_size, retrieve_k, docstring=False)
-        results["code_full_gnn"] = evaluator.eval_full_gnn()
+        code_evaluator.load_model(pretrain_model_path)
+        results["code_full_gnn"] = code_evaluator.eval_full_gnn()
         print(results["code_full_gnn"])
 
     # ---- Summary ----
