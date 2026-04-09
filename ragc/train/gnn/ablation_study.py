@@ -161,10 +161,33 @@ class AblationEvaluator:
             c_actual[n].append(int(relevant_f))
         return query_embs, c_actual
 
-    def _topk(self, sim_matrix: torch.Tensor, k: int) -> torch.Tensor:
-        cur_k = min(k, sim_matrix.shape[1])
-        _, indices = torch.topk(sim_matrix, k=cur_k, dim=1)
-        return indices
+    def _retrieve_per_subgraph(
+        self,
+        query_embs: torch.Tensor,
+        candidates: torch.Tensor,
+        emb_ptr: torch.Tensor,
+        node_ptr: torch.Tensor,
+        k: int,
+    ) -> list[list[int]]:
+        """Retrieve top-k per subgraph, matching GNN's retrieve() behavior."""
+        query_embs = F.normalize(query_embs, p=2, dim=1)
+        candidates = F.normalize(candidates, p=2, dim=1)
+
+        out = []
+        for i in range(len(node_ptr) - 1):
+            q_start, q_end = emb_ptr[i], emb_ptr[i + 1]
+            n_start, n_end = node_ptr[i], node_ptr[i + 1]
+
+            cur_queries = query_embs[q_start:q_end]
+            cur_candidates = candidates[n_start:n_end]
+
+            sim = cur_queries @ cur_candidates.T
+            cur_k = min(k, sim.shape[1])
+            _, indices = torch.topk(sim, k=cur_k, dim=1)
+            indices += n_start  # offset to global batch index
+            out.extend(indices.tolist())
+
+        return out
 
     def eval_knn_baseline(self) -> dict[str, float]:
         """A) KNN: raw embeddings, cosine similarity, no GNN, no projector."""
@@ -175,10 +198,11 @@ class AblationEvaluator:
             if query_embs is None:
                 continue
 
-            candidates = F.normalize(batched_graph["FUNCTION"].x, p=2, dim=1)
-            queries = F.normalize(query_embs, p=2, dim=1)
-            sim = queries @ candidates.T
-            pred = self._topk(sim, self.retrieve_k)
+            pred = self._retrieve_per_subgraph(
+                query_embs, batched_graph["FUNCTION"].x,
+                batched_graph.init_embs_ptr, batched_graph["FUNCTION"].ptr,
+                k=self.retrieve_k,
+            )
 
             actual_all.extend(c_actual)
             predicted_all.extend(pred)
@@ -196,10 +220,11 @@ class AblationEvaluator:
                     continue
 
                 node_embs = self.model(batched_graph.x_dict, batched_graph.edge_index_dict)
-                candidates = F.normalize(node_embs["FUNCTION"], p=2, dim=1)
-                queries = F.normalize(query_embs, p=2, dim=1)
-                sim = queries @ candidates.T
-                pred = self._topk(sim, self.retrieve_k)
+                pred = self._retrieve_per_subgraph(
+                    query_embs, node_embs["FUNCTION"],
+                    batched_graph.init_embs_ptr, batched_graph["FUNCTION"].ptr,
+                    k=self.retrieve_k,
+                )
 
                 actual_all.extend(c_actual)
                 predicted_all.extend(pred)
@@ -217,12 +242,12 @@ class AblationEvaluator:
                 if query_embs is None:
                     continue
 
-                # Apply projector to queries but use raw node embeddings
                 projected = self.model.proj_map[relation_type](query_embs)
-                projected = F.normalize(projected, p=2, dim=1)
-                candidates = F.normalize(batched_graph["FUNCTION"].x, p=2, dim=1)
-                sim = projected @ candidates.T
-                pred = self._topk(sim, self.retrieve_k)
+                pred = self._retrieve_per_subgraph(
+                    projected, batched_graph["FUNCTION"].x,
+                    batched_graph.init_embs_ptr, batched_graph["FUNCTION"].ptr,
+                    k=self.retrieve_k,
+                )
 
                 actual_all.extend(c_actual)
                 predicted_all.extend(pred)
@@ -250,17 +275,18 @@ class AblationEvaluator:
         return compute_metrics(actual_all, predicted_all)
 
     def _collect_ranked_knn(self) -> tuple[list[list[int]], list[list]]:
-        """Collect KNN ranked lists at MAX_K."""
+        """Collect KNN ranked lists at MAX_K (per-subgraph)."""
         actual_all, predicted_all = [], []
         for batched_graph in tqdm(self.test_loader, desc="KNN ranked lists"):
             batched_graph.to(self.device)
             query_embs, c_actual = self._get_pairs(batched_graph)
             if query_embs is None:
                 continue
-            candidates = F.normalize(batched_graph["FUNCTION"].x, p=2, dim=1)
-            queries = F.normalize(query_embs, p=2, dim=1)
-            sim = queries @ candidates.T
-            pred = self._topk(sim, MAX_K)
+            pred = self._retrieve_per_subgraph(
+                query_embs, batched_graph["FUNCTION"].x,
+                batched_graph.init_embs_ptr, batched_graph["FUNCTION"].ptr,
+                k=MAX_K,
+            )
             actual_all.extend(c_actual)
             predicted_all.extend(pred)
         return actual_all, predicted_all

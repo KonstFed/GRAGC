@@ -109,33 +109,31 @@ class Evaluator:
 
                 query_embs = batched_graph.init_embs
 
-                # KNN implementation
+                # KNN implementation (per-subgraph to match GNN's retrieve)
+                candidates = F.normalize(batched_graph["FUNCTION"].x, p=2, dim=1)
+                query_embs_norm = F.normalize(query_embs, p=2, dim=1)
 
-                candidates = batched_graph["FUNCTION"].x
-                candidates = F.normalize(candidates, p=2, dim=1)
-                query_embs = F.normalize(query_embs, p=2, dim=1)
+                emb_ptr = batched_graph.init_embs_ptr
+                node_ptr = batched_graph["FUNCTION"].ptr
 
-                cosine_sim = query_embs @ candidates.T
-                cur_k = min(self.retrieve_k, cosine_sim.shape[1])
-                _values, pred_relevant = torch.topk(cosine_sim, k=cur_k, dim=1)
+                pred_relevant = []
+                for i in range(len(node_ptr) - 1):
+                    q_start, q_end = emb_ptr[i], emb_ptr[i + 1]
+                    n_start, n_end = node_ptr[i], node_ptr[i + 1]
 
-                # pred_relevant = self.model.retrieve(
-                #     batched_graph,
-                #     node_embeddings["FUNCTION"],
-                #     query_embs,
-                #     batched_graph.init_embs_ptr,
-                #     k=k,
-                # )
+                    cur_queries = query_embs_norm[q_start:q_end]
+                    cur_candidates = candidates[n_start:n_end]
+
+                    cosine_sim = cur_queries @ cur_candidates.T
+                    cur_k = min(self.retrieve_k, cosine_sim.shape[1])
+                    _values, indices = torch.topk(cosine_sim, k=cur_k, dim=1)
+                    indices += n_start
+                    pred_relevant.extend(indices)
 
                 # get actual relevant nodes
                 c_actual = [[] for _ in range(len(query_embs))]
-                # c_predicted = [[] for _ in range(len(query_embs))]
                 for n, relevant_f in batched_graph.pairs.T:
-                    # idx = node2query_map[n]
-                    # if idx == -1:
-                    #     raise ValueError
                     c_actual[n].append(int(relevant_f))
-                    # c_predicted[n] = pred_relevant[n]
 
                 actual.extend(c_actual)
                 predicted.extend(pred_relevant)
