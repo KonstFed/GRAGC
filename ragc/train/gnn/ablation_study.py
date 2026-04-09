@@ -337,7 +337,9 @@ class AblationEvaluator:
             ax.set_title(f"{metric}@k: KNN vs GNN")
             ax.legend()
             ax.grid(True, alpha=0.3)
+            ax.set_xscale("log")
             ax.set_xticks(K_VALUES)
+            ax.set_xticklabels([str(k) for k in K_VALUES])
             ax.tick_params(axis="x", rotation=45)
 
         fig.tight_layout()
