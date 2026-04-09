@@ -291,6 +291,78 @@ class AblationEvaluator:
 
         return curves
 
+    def plot_k_ratio(self, output_path: Path) -> None:
+        """Plot what ratio of graph nodes we retrieve for each k.
+
+        For each subgraph in the test set, computes k / n_nodes for each k in K_VALUES.
+        Produces a boxplot and a histogram.
+        """
+        # Collect per-subgraph node counts
+        graph_sizes = []
+        for batched_graph in tqdm(self.test_loader, desc="Collecting graph sizes"):
+            batched_graph.to(self.device)
+            if "pairs" not in batched_graph:
+                continue
+            ptr = batched_graph["FUNCTION"].ptr
+            for i in range(len(ptr) - 1):
+                n_nodes = (ptr[i + 1] - ptr[i]).item()
+                if n_nodes > 0:
+                    graph_sizes.append(n_nodes)
+
+        graph_sizes = torch.tensor(graph_sizes, dtype=torch.float32)
+        print(f"Graph sizes: min={graph_sizes.min().item():.0f}, "
+              f"max={graph_sizes.max().item():.0f}, "
+              f"mean={graph_sizes.mean().item():.1f}, "
+              f"median={graph_sizes.median().item():.0f}")
+
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        # Boxplot: distribution of k/n_nodes for each k
+        ratios_per_k = []
+        labels = []
+        for k in K_VALUES:
+            ratios = (torch.clamp(torch.tensor(k, dtype=torch.float32), max=graph_sizes) / graph_sizes).tolist()
+            ratios_per_k.append(ratios)
+            labels.append(str(k))
+
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.boxplot(ratios_per_k, labels=labels, showfliers=False)
+        ax.set_xlabel("k")
+        ax.set_ylabel("Ratio of retrieved nodes (k / n_nodes)")
+        ax.set_title("Ratio of graph nodes retrieved at each k")
+        ax.axhline(y=1.0, color="r", linestyle="--", alpha=0.5, label="100% of nodes")
+        ax.legend()
+        ax.grid(True, alpha=0.3, axis="y")
+        fig.tight_layout()
+        fig.savefig(output_path / "k_ratio_boxplot.png", dpi=150)
+        plt.close(fig)
+        print(f"Boxplot saved to {output_path / 'k_ratio_boxplot.png'}")
+
+        # Histogram: for each k, distribution of k/n_nodes
+        n_ks = len(K_VALUES)
+        cols = 4
+        rows = (n_ks + cols - 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 3.5 * rows))
+        axes = axes.flatten()
+
+        for idx, k in enumerate(K_VALUES):
+            ratios = (torch.clamp(torch.tensor(k, dtype=torch.float32), max=graph_sizes) / graph_sizes).tolist()
+            axes[idx].hist(ratios, bins=30, edgecolor="black", alpha=0.7)
+            axes[idx].set_title(f"k={k}")
+            axes[idx].set_xlabel("k / n_nodes")
+            axes[idx].set_ylabel("Count")
+            axes[idx].axvline(x=1.0, color="r", linestyle="--", alpha=0.5)
+
+        # Hide unused subplots
+        for idx in range(n_ks, len(axes)):
+            axes[idx].set_visible(False)
+
+        fig.suptitle("Distribution of retrieval ratio (k / n_nodes) per k", y=1.02)
+        fig.tight_layout()
+        fig.savefig(output_path / "k_ratio_histograms.png", dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print(f"Histograms saved to {output_path / 'k_ratio_histograms.png'}")
+
     def eval_rank_analysis(self) -> dict:
         """E) Analyze what GNN retrieval favors: node degree, position, etc."""
         assert self.model is not None, "Model required for this ablation"
@@ -427,13 +499,17 @@ def run_ablation(
         print(json.dumps(results["docstring_rank_analysis"], indent=2))
 
     # F) Recall@k curve (works with or without model)
-    print("\n--- F) Recall@k curve (k=1..200) ---")
+    print("\n--- F) Recall@k curve (k=1..600) ---")
     recall_curves = doc_evaluator.plot_recall_at_k(output_path)
     results["recall_at_k_curves"] = {label: {str(k): v for k, v in curve.items()} for label, curve in recall_curves.items()}
     for label, curve in recall_curves.items():
         print(f"  {label}:")
         for k, v in sorted(curve.items()):
             print(f"    recall@{k:>3d}: {v:.4f}")
+
+    # G) k/n_nodes ratio analysis
+    print("\n--- G) Retrieval ratio (k / n_nodes) analysis ---")
+    doc_evaluator.plot_k_ratio(output_path)
 
     if not (finetune_model_path and finetune_model_path.exists()):
         print(f"\nNo finetuned model found at {finetune_model_path}, skipping GNN ablations.")
