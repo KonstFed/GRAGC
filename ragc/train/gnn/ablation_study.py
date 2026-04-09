@@ -226,11 +226,25 @@ class AblationEvaluator:
 
                 # Compute in-degree for FUNCTION nodes via CALL edges
                 call_edges = batched_graph["FUNCTION", "CALL", "FUNCTION"].edge_index
-                in_degree = torch.zeros(batched_graph["FUNCTION"].num_nodes, dtype=torch.long, device=self.device)
+                # Use max index across all sources to size the degree tensor correctly
+                all_indices = []
+                for c_a in c_actual:
+                    all_indices.extend(c_a)
+                for p in pred:
+                    if isinstance(p, torch.Tensor):
+                        all_indices.extend(p.tolist())
+                    else:
+                        all_indices.extend(p)
+                if call_edges.shape[1] > 0:
+                    all_indices.extend(call_edges[0].tolist())
+                    all_indices.extend(call_edges[1].tolist())
+                n_nodes = max(all_indices) + 1 if all_indices else batched_graph["FUNCTION"].num_nodes
+
+                in_degree = torch.zeros(n_nodes, dtype=torch.long, device=self.device)
                 if call_edges.shape[1] > 0:
                     in_degree.scatter_add_(0, call_edges[1], torch.ones(call_edges.shape[1], dtype=torch.long, device=self.device))
 
-                out_degree = torch.zeros(batched_graph["FUNCTION"].num_nodes, dtype=torch.long, device=self.device)
+                out_degree = torch.zeros(n_nodes, dtype=torch.long, device=self.device)
                 if call_edges.shape[1] > 0:
                     out_degree.scatter_add_(0, call_edges[0], torch.ones(call_edges.shape[1], dtype=torch.long, device=self.device))
 
