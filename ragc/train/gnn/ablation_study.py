@@ -15,6 +15,7 @@ E) Rank analysis: check if GNN systematically favors certain node properties
 """
 
 import json
+import math
 import random
 from pathlib import Path
 from collections import defaultdict
@@ -41,24 +42,49 @@ MAX_K = 1000
 K_VALUES = [1, 3, 5, 10, 15, 20, 30, 50, 75, 100, 150, 200, 300, 400, 500, 600, 800, 1000]
 
 
-def compute_recall_at_k(actual: list[list[int]], predicted: list[list], k: int) -> float:
-    """Compute recall@k from ranked lists retrieved at max_k >= k."""
+def compute_metrics_at_k(
+    actual: list[list[int]], predicted: list[list], k: int,
+) -> dict[str, float]:
+    """Compute recall@k, precision@k, F1@k, nDCG@k from ranked lists retrieved at max_k >= k."""
     recalls = []
+    precisions = []
+    ndcgs = []
     for actual_nodes, pred_nodes in zip(actual, predicted, strict=True):
         if isinstance(pred_nodes, torch.Tensor):
             pred_nodes = pred_nodes.tolist()
         top_k = pred_nodes[:k]
-        tp = len(set(actual_nodes).intersection(top_k))
+        actual_set = set(actual_nodes)
+        tp = len(actual_set.intersection(top_k))
         recall = tp / len(actual_nodes) if actual_nodes else 0
+        precision = tp / len(top_k) if top_k else 0
         recalls.append(recall)
-    return sum(recalls) / len(recalls) if recalls else 0
+        precisions.append(precision)
+
+        # nDCG: binary relevance
+        dcg = sum(1.0 / math.log2(rank + 1) for rank, node in enumerate(top_k, 1) if node in actual_set)
+        ideal_hits = min(len(actual_nodes), k)
+        idcg = sum(1.0 / math.log2(rank + 1) for rank in range(1, ideal_hits + 1))
+        ndcgs.append(dcg / idcg if idcg > 0 else 0)
+
+    avg_recall = sum(recalls) / len(recalls) if recalls else 0
+    avg_precision = sum(precisions) / len(precisions) if precisions else 0
+    f1 = (2 * avg_precision * avg_recall / (avg_precision + avg_recall)) if (avg_precision + avg_recall) > 0 else 0
+    avg_ndcg = sum(ndcgs) / len(ndcgs) if ndcgs else 0
+    return {"recall": avg_recall, "precision": avg_precision, "f1": f1, "ndcg": avg_ndcg}
 
 
-def compute_recall_at_k_curve(
+def compute_curves_at_k(
     actual: list[list[int]], predicted: list[list], k_values: list[int] = K_VALUES,
-) -> dict[int, float]:
-    """Compute recall@k for multiple k values from ranked lists."""
-    return {k: compute_recall_at_k(actual, predicted, k) for k in k_values}
+) -> dict[str, dict[int, float]]:
+    """Compute recall@k, precision@k, F1@k, nDCG@k curves."""
+    recall_curve, precision_curve, f1_curve, ndcg_curve = {}, {}, {}, {}
+    for k in k_values:
+        m = compute_metrics_at_k(actual, predicted, k)
+        recall_curve[k] = m["recall"]
+        precision_curve[k] = m["precision"]
+        f1_curve[k] = m["f1"]
+        ndcg_curve[k] = m["ndcg"]
+    return {"recall": recall_curve, "precision": precision_curve, "f1": f1_curve, "ndcg": ndcg_curve}
 
 
 def compute_metrics(actual: list[list[int]], predicted: list[list[int]]) -> dict[str, float]:
@@ -258,38 +284,43 @@ class AblationEvaluator:
                 predicted_all.extend(pred)
         return actual_all, predicted_all
 
-    def plot_recall_at_k(self, output_path: Path) -> dict[str, dict[int, float]]:
-        """Plot recall@k curves for KNN and GNN (if model loaded)."""
-        curves = {}
+    def plot_metrics_at_k(self, output_path: Path) -> dict[str, dict[str, dict[int, float]]]:
+        """Plot recall@k, precision@k, F1@k curves for KNN and GNN."""
+        all_curves = {}  # {label: {metric: {k: value}}}
 
         actual_knn, pred_knn = self._collect_ranked_knn()
-        curves["KNN"] = compute_recall_at_k_curve(actual_knn, pred_knn)
+        all_curves["KNN"] = compute_curves_at_k(actual_knn, pred_knn)
 
         if self.model is not None:
             actual_gnn, pred_gnn = self._collect_ranked_full_gnn()
-            curves["GNN"] = compute_recall_at_k_curve(actual_gnn, pred_gnn)
-
-        plt.figure(figsize=(10, 6))
-        for label, curve in curves.items():
-            ks = sorted(curve.keys())
-            recalls = [curve[k] for k in ks]
-            plt.plot(ks, recalls, marker="o", label=label)
-
-        plt.xlabel("k")
-        plt.ylabel("Recall@k")
-        plt.title("Recall@k: KNN vs GNN")
-        plt.legend()
-        plt.grid(True, alpha=0.3)
-        plt.xticks(K_VALUES, rotation=45)
-        plt.tight_layout()
+            all_curves["GNN"] = compute_curves_at_k(actual_gnn, pred_gnn)
 
         output_path.mkdir(parents=True, exist_ok=True)
-        plot_path = output_path / "recall_at_k.png"
-        plt.savefig(plot_path, dpi=150)
-        plt.close()
+
+        metrics = ["recall", "precision", "f1", "ndcg"]
+        fig, axes = plt.subplots(1, 4, figsize=(24, 6))
+
+        for ax, metric in zip(axes, metrics):
+            for label, curves in all_curves.items():
+                curve = curves[metric]
+                ks = sorted(curve.keys())
+                values = [curve[k] for k in ks]
+                ax.plot(ks, values, marker="o", label=label)
+            ax.set_xlabel("k")
+            ax.set_ylabel(f"{metric}@k")
+            ax.set_title(f"{metric}@k: KNN vs GNN")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            ax.set_xticks(K_VALUES)
+            ax.tick_params(axis="x", rotation=45)
+
+        fig.tight_layout()
+        plot_path = output_path / "metrics_at_k.png"
+        fig.savefig(plot_path, dpi=150)
+        plt.close(fig)
         print(f"Plot saved to {plot_path}")
 
-        return curves
+        return all_curves
 
     def plot_k_ratio(self, output_path: Path) -> None:
         """Plot what ratio of graph nodes we retrieve for each k.
@@ -498,14 +529,19 @@ def run_ablation(
         results["docstring_rank_analysis"] = doc_evaluator.eval_rank_analysis()
         print(json.dumps(results["docstring_rank_analysis"], indent=2))
 
-    # F) Recall@k curve (works with or without model)
-    print("\n--- F) Recall@k curve (k=1..600) ---")
-    recall_curves = doc_evaluator.plot_recall_at_k(output_path)
-    results["recall_at_k_curves"] = {label: {str(k): v for k, v in curve.items()} for label, curve in recall_curves.items()}
-    for label, curve in recall_curves.items():
+    # F) Metrics@k curves (works with or without model)
+    print("\n--- F) Recall@k, Precision@k, F1@k curves (k=1..600) ---")
+    all_curves = doc_evaluator.plot_metrics_at_k(output_path)
+    results["metrics_at_k_curves"] = {
+        label: {metric: {str(k): v for k, v in curve.items()} for metric, curve in curves.items()}
+        for label, curves in all_curves.items()
+    }
+    for label, curves in all_curves.items():
         print(f"  {label}:")
-        for k, v in sorted(curve.items()):
-            print(f"    recall@{k:>3d}: {v:.4f}")
+        for metric in ("recall", "precision", "f1", "ndcg"):
+            print(f"    {metric}@k:")
+            for k, v in sorted(curves[metric].items()):
+                print(f"      k={k:>3d}: {v:.4f}")
 
     # G) k/n_nodes ratio analysis
     print("\n--- G) Retrieval ratio (k / n_nodes) analysis ---")
