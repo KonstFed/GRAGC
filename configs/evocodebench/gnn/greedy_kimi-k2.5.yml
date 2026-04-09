@@ -10,7 +10,7 @@ inference:
     store_in_gpu: false
   retrieval:
     type: gnn
-    k: 10
+    k: 30
     model_path: BEST_CHECKPOINT.pt
   fusion:
     type: augmentation
