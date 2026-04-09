@@ -189,7 +189,7 @@ if __name__ == "__main__":
     print("Test")
     print(code_metrics[2])
 
-    doc_metrics =  Evaluator(ds, 100, 5, False)
+    doc_metrics =  Evaluator(ds, 100, 5, True)
     doc_metrics = doc_metrics.eval()
 
     print("Train")
