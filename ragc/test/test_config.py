@@ -1,5 +1,6 @@
 import warnings
 import os
+import re
 from pathlib import Path
 from typing import Iterator, Literal, Dict, Union, Any
 
@@ -62,12 +63,84 @@ REQUIREMENTS
     return prompt
 
 
+def _debug_check_leak(
+    task: Dict[str, Any],
+    repos_path: Union[str, os.PathLike],
+    signature: str,
+    local_context: str,
+) -> None:
+    """Emit debug info to sanity-check that `local_context` does not leak the target body.
+
+    Activated by setting the env var `RAGC_DEBUG_LEAK=1`. Checks:
+      1. The target function name does not already appear inside `local_context`
+         (if it does, the model can copy the definition directly).
+      2. None of the lines from the ground-truth body (`body_position`) appear in
+         `local_context`.
+      3. Prints totals: file size, where the signature is, how many lines of
+         local_context were produced, and the tail of local_context.
+    """
+    if not os.environ.get("RAGC_DEBUG_LEAK"):
+        return
+
+    namespace = task.get("namespace", "?")
+    completion_path = task.get("completion_path", "?")
+    signature_position = task.get("signature_position")
+    body_position = task.get("body_position")
+
+    try:
+        with open(Path(repos_path) / completion_path, "r") as f:
+            total_lines = len(f.read().split("\n"))
+    except Exception:
+        total_lines = -1
+
+    local_lines = local_context.split("\n")
+
+    print(f"\n[LEAK DEBUG] namespace={namespace}")
+    print(f"  file={completion_path}  total_lines={total_lines}")
+    print(f"  signature_position={signature_position}  body_position={body_position}")
+    print(f"  signature={signature.strip()!r}")
+    print(f"  local_context: {len(local_lines)} lines")
+
+    # 1) function name leak
+    m = re.search(r"def\s+(\w+)\s*\(", signature)
+    if m:
+        fname = m.group(1)
+        hits = [i for i, line in enumerate(local_lines, start=1) if re.search(rf"\b{re.escape(fname)}\b", line)]
+        if hits:
+            print(f"  WARNING: target name {fname!r} appears in local_context at lines {hits[:10]}")
+            for h in hits[:5]:
+                print(f"    L{h}: {local_lines[h - 1].rstrip()}")
+
+    # 2) ground-truth body leak
+    if body_position and isinstance(body_position, (list, tuple)) and len(body_position) == 2:
+        try:
+            body = extract_lines(Path(repos_path) / completion_path, tuple(body_position))
+            body_lines = [ln.strip() for ln in body.split("\n") if ln.strip()]
+            leaked = [bl for bl in body_lines if bl in local_context]
+            if leaked:
+                print(f"  WARNING: {len(leaked)}/{len(body_lines)} body lines also present in local_context")
+                for bl in leaked[:5]:
+                    print(f"    BODY: {bl}")
+        except Exception as e:
+            print(f"  (could not extract body for leak check: {e})")
+
+    # 3) tail of local_context
+    tail = local_lines[-20:]
+    print(f"  --- last {len(tail)} lines of local_context ---")
+    for line in tail:
+        print(f"    {line}")
+    print(f"  --- end ---\n")
+
+
 def build_prompt(task: Dict[str, Any], repos_path: Union[str, os.PathLike]) -> Dict[str, str]:
     signature = extract_lines(repos_path / task["completion_path"], task["signature_position"])
     rel_path = task['completion_path'].replace(task['project_path'], '', 1).strip('/')
 
     prompt = completion_prompt(rel_path, signature, task['requirement'])
     local_context = extract_lines(repos_path / task["completion_path"], (1, task["signature_position"][0] - 1))
+
+    _debug_check_leak(task, repos_path, signature, local_context)
+
     return {'prompt': prompt, 'local_context': local_context, 'completion_path': rel_path}
 
 
