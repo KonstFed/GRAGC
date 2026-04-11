@@ -61,10 +61,16 @@ def generate_completions(
         gen_cfg = test_inference_cfg.inference.fusion.generator
         object.__setattr__(gen_cfg, "debug", True)
 
+        from ragc.llm.remote import OpenAIChatGenerator
+        debug_path = output_path.parent / f"{output_path.stem}__debug_prompts.jsonl"
+        OpenAIChatGenerator._debug_output_path = str(debug_path)
+        # Truncate the debug file
+        open(debug_path, "w").close()
+
     test_inference = test_inference_cfg.create()
     print(f"Loaded {len(test_inference.tasks)} tasks")
     if debug:
-        print("[DEBUG MODE] Prompts will be saved, no API calls will be made")
+        print(f"[DEBUG MODE] Prompts will be saved on the fly to {debug_path}")
     print("-" * 256)
 
     f = open(output_path, "w")
@@ -88,28 +94,9 @@ def generate_completions(
             f.write(json_line + "\n")
 
     if debug:
-        _save_debug_prompts(test_inference, output_path)
-
-
-def _save_debug_prompts(test_inference, output_path: Path):
-    """Save collected debug prompts from the generator to a separate file."""
-    debug_path = output_path.parent / f"{output_path.stem}__debug_prompts.jsonl"
-
-    # Walk through the inference config to find the generator with debug prompts
-    # The generator is recreated per task, so we need to collect from the last one.
-    # Instead, we collect from all generators that were created during the run.
-    # The prompts are accumulated on each OpenAIChatGenerator instance.
-    # Since InferenceConfig.create() is called per task, we need a different approach.
-    # Let's use a class-level collector instead.
-    from ragc.llm.remote import OpenAIChatGenerator
-    prompts = OpenAIChatGenerator._debug_all_prompts
-
-    with open(debug_path, "w") as f:
-        for record in prompts:
-            f.write(json.dumps(record) + "\n")
-
-    print(f"\n[DEBUG] Saved {len(prompts)} prompts to {debug_path}")
-    OpenAIChatGenerator._debug_all_prompts = []
+        from ragc.llm.remote import OpenAIChatGenerator
+        print(f"\n[DEBUG] Prompts saved to {OpenAIChatGenerator._debug_output_path}")
+        OpenAIChatGenerator._debug_output_path = None
 
 
 def retrieval_metrics(

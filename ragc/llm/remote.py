@@ -92,7 +92,7 @@ class OpenAIEmbedderConfig(BaseEmbederConfig):
 class OpenAIChatGenerator(AugmentedGenerator):
     """Chat completion generator using OpenAI/OpenRouter chat API."""
 
-    _debug_all_prompts: list[dict[str, Any]] = []
+    _debug_output_path: str | None = None
 
     def __init__(  # noqa: PLR0913
         self,
@@ -125,14 +125,18 @@ class OpenAIChatGenerator(AugmentedGenerator):
         messages.append({"role": "user", "content": prompt})
 
         if self._debug:
-            OpenAIChatGenerator._debug_all_prompts.append({
+            import json
+            record = {
                 "messages": messages,
                 "retrieved_nodes": [
                     {"name": n.name, "file_path": str(n.file_path), "code_len": len(n.code)}
                     for n in relevant_nodes
                 ],
                 "num_retrieved_nodes": len(relevant_nodes),
-            })
+            }
+            if OpenAIChatGenerator._debug_output_path:
+                with open(OpenAIChatGenerator._debug_output_path, "a") as f:
+                    f.write(json.dumps(record) + "\n")
             return ""
 
         kwargs = {
