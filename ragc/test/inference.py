@@ -33,6 +33,11 @@ def parse_args():
         required=True,
         help="Path to .yaml config for inference",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Debug mode: save prompts to output instead of calling the API",
+    )
 
     return parser.parse_args()
 
@@ -40,6 +45,7 @@ def parse_args():
 def generate_completions(
     output_path: str | Path,
     config_path: str | Path,
+    debug: bool = False,
 ):
     output_path = Path(output_path).absolute().resolve()
     raw_output_path = output_path.parent / f"{output_path.stem}__raw.jsonl"
@@ -49,8 +55,16 @@ def generate_completions(
     os.makedirs(raw_output_dir, exist_ok=True)
 
     test_inference_cfg: TestInferenceConfig = load_config(TestInferenceConfig, config_path)
+
+    if debug:
+        # Enable debug on the generator config so it saves prompts instead of calling API
+        gen_cfg = test_inference_cfg.inference.fusion.generator
+        object.__setattr__(gen_cfg, "debug", True)
+
     test_inference = test_inference_cfg.create()
     print(f"Loaded {len(test_inference.tasks)} tasks")
+    if debug:
+        print("[DEBUG MODE] Prompts will be saved, no API calls will be made")
     print("-" * 256)
 
     f = open(output_path, "w")
@@ -72,6 +86,30 @@ def generate_completions(
         with open(output_path, "a") as f:
             json_line = json.dumps(result)
             f.write(json_line + "\n")
+
+    if debug:
+        _save_debug_prompts(test_inference, output_path)
+
+
+def _save_debug_prompts(test_inference, output_path: Path):
+    """Save collected debug prompts from the generator to a separate file."""
+    debug_path = output_path.parent / f"{output_path.stem}__debug_prompts.jsonl"
+
+    # Walk through the inference config to find the generator with debug prompts
+    # The generator is recreated per task, so we need to collect from the last one.
+    # Instead, we collect from all generators that were created during the run.
+    # The prompts are accumulated on each OpenAIChatGenerator instance.
+    # Since InferenceConfig.create() is called per task, we need a different approach.
+    # Let's use a class-level collector instead.
+    from ragc.llm.remote import OpenAIChatGenerator
+    prompts = OpenAIChatGenerator._debug_all_prompts
+
+    with open(debug_path, "w") as f:
+        for record in prompts:
+            f.write(json.dumps(record) + "\n")
+
+    print(f"\n[DEBUG] Saved {len(prompts)} prompts to {debug_path}")
+    OpenAIChatGenerator._debug_all_prompts = []
 
 
 def retrieval_metrics(
@@ -117,6 +155,7 @@ if __name__ == "__main__":
             generate_completions(
                 args.output,
                 config_path=args.config,
+                debug=args.debug,
             )
         case "retrieval":
             retrieval_metrics(

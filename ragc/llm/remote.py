@@ -92,6 +92,8 @@ class OpenAIEmbedderConfig(BaseEmbederConfig):
 class OpenAIChatGenerator(AugmentedGenerator):
     """Chat completion generator using OpenAI/OpenRouter chat API."""
 
+    _debug_all_prompts: list[dict[str, Any]] = []
+
     def __init__(  # noqa: PLR0913
         self,
         client: OpenAI,
@@ -99,12 +101,14 @@ class OpenAIChatGenerator(AugmentedGenerator):
         local_context_lines: int = 0,
         system_message: str | None = None,
         extra_kwargs: dict[str, Any] | None = None,
+        debug: bool = False,
     ):
         self._client = client
         self._model = model
         self._local_context_lines = local_context_lines
         self._system_message = system_message
         self._extra_kwargs = extra_kwargs or {}
+        self._debug = debug
 
     def generate(self, query: str | dict[str, Any], relevant_nodes: list[Node]) -> str:
         """Build prompt from query and context, call chat API, return assistant content."""
@@ -115,19 +119,21 @@ class OpenAIChatGenerator(AugmentedGenerator):
                 query, relevant_nodes, local_context_lines=self._local_context_lines,
             )
 
-        # print("----------SYSTEM MESSAGE-------------------")
-        # print(self._system_message)
-        # print("--------------------------------")
-        # print("----------PROMPT-------------------")
-        # print(prompt)
-        # print("--------------------------------")
-        # print("----------RELEVANT NODES-------------------")
-        # print(relevant_nodes)
-        # print("--------------------------------")
         messages = []
         if self._system_message:
             messages.append({"role": "system", "content": self._system_message})
         messages.append({"role": "user", "content": prompt})
+
+        if self._debug:
+            OpenAIChatGenerator._debug_all_prompts.append({
+                "messages": messages,
+                "retrieved_nodes": [
+                    {"name": n.name, "file_path": str(n.file_path), "code_len": len(n.code)}
+                    for n in relevant_nodes
+                ],
+                "num_retrieved_nodes": len(relevant_nodes),
+            })
+            return ""
 
         kwargs = {
             "model": self._model,
@@ -156,10 +162,11 @@ class OpenAIChatGeneratorConfig(AugmentedGeneratorConfig):
         default_factory=dict,
         description="Extra kwargs for chat.completions.create (e.g. temperature)",
     )
+    debug: bool = Field(default=False, description="Debug mode: save prompts instead of calling API")
 
     def create(self) -> OpenAIChatGenerator:
         """Build OpenAI client and chat generator instance."""
-        key = os.environ.get("API_KEY")
+        key = os.environ.get("API_KEY") or ("dummy-debug" if self.debug else None)
         client = OpenAI(
             api_key=key,
             base_url=self.base_url or OPENAI_BASE_URL,
@@ -170,4 +177,5 @@ class OpenAIChatGeneratorConfig(AugmentedGeneratorConfig):
             local_context_lines=self.local_context_lines,
             system_message=self.system_message,
             extra_kwargs=self.extra_kwargs,
+            debug=self.debug,
         )

@@ -42,7 +42,7 @@ def discover_configs(modes: list[str], models: list[str] | None = None) -> list[
     return configs
 
 
-def run_single(mode: str, config_path: Path) -> dict:
+def run_single(mode: str, config_path: Path, debug: bool = False) -> dict:
     """Run a single inference config. Returns a result dict."""
     stem = config_path.stem  # e.g. greedy_deepseekv3
     output_path = OUTPUTS_DIR / mode / f"{stem}.jsonl"
@@ -60,6 +60,8 @@ def run_single(mode: str, config_path: Path) -> dict:
         "-c", str(config_path),
         "-o", str(output_path),
     ]
+    if debug:
+        cmd.append("--debug")
 
     with open(log_path, "w") as log_file:
         log_file.write(f"{'='*80}\n")
@@ -95,6 +97,7 @@ def main():
     parser.add_argument("-m", "--modes", nargs="+", choices=MODES, default=MODES, help="Modes to run")
     parser.add_argument("--models", nargs="+", default=None, help="Filter by model name substring (e.g. deepseekv3 qwen2.5-72b)")
     parser.add_argument("--dry-run", action="store_true", help="List configs without running")
+    parser.add_argument("--debug", action="store_true", help="Debug mode: save prompts instead of calling API")
     args = parser.parse_args()
 
     configs = discover_configs(args.modes, args.models)
@@ -103,7 +106,7 @@ def main():
         return
 
     print(f"\n{'='*60}")
-    print(f"  Evocodebench batch runner")
+    print(f"  Evocodebench batch runner{'  [DEBUG MODE]' if args.debug else ''}")
     print(f"  {len(configs)} configs | {args.workers} workers | modes: {', '.join(args.modes)}")
     print(f"{'='*60}\n")
 
@@ -119,7 +122,7 @@ def main():
     results = []
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
         futures = {
-            pool.submit(run_single, mode, cfg): (mode, cfg)
+            pool.submit(run_single, mode, cfg, args.debug): (mode, cfg)
             for mode, cfg in configs
         }
 
