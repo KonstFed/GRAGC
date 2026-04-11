@@ -41,7 +41,12 @@ def _build_prompt_from_query_and_nodes(
     else:
         local_block = ""
 
-    parts = docs + ([local_block] if local_block else []) + [prompt]
+    parts = []
+    if docs:
+        parts.append("### RETRIEVED CONTEXT FROM OTHER FILES ###\n\n" + "\n\n".join(docs))
+    if local_block:
+        parts.append("### LOCAL FILE CONTEXT ###\n\n" + local_block)
+    parts.append("### TASK ###\n\n" + prompt)
     return "\n\n".join(parts)
 
 

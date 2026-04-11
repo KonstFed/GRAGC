@@ -9,6 +9,7 @@ from ragc.train.gnn.train_transforms import InverseEdges
 from ragc.graphs.hetero_transforms import ToHetero, RemoveExcessInfo, InitFileEmbeddings
 
 from ragc.retrieval.common import BaseRetrieval, BaseRetievalConfig
+from ragc.graphs.common import NodeTypeNumeric, EdgeTypeNumeric
 from ragc.graphs.utils import pyg_extract_node
 
 
@@ -69,9 +70,33 @@ class GNNRetrieval(BaseRetrieval):
         og_indices = torch.tensor(og_indices).to(dtype=torch.int64)
         return og_indices
 
+    def _expand_to_parents(self, indices: list[int]) -> list[int]:
+        """Expand function nodes to their parent class/function scope, stopping before FILE nodes."""
+        owner_mask = self.graph.edge_type == EdgeTypeNumeric.OWNER.value
+        owner_edges = self.graph.edge_index[:, owner_mask]
+
+        expanded = []
+        seen = set()
+        for idx in indices:
+            cur = idx
+            while True:
+                parent_mask = owner_edges[1] == cur
+                if not parent_mask.any():
+                    break
+                parent_idx = owner_edges[0, parent_mask][0].item()
+                parent_type = self.graph.type[parent_idx].item()
+                if parent_type == NodeTypeNumeric.FILE.value:
+                    break
+                cur = parent_idx
+            if cur not in seen:
+                seen.add(cur)
+                expanded.append(cur)
+        return expanded
+
     def retrieve(self, query):
         og_indices = self._retrieve(query)
-        return pyg_extract_node(self.graph, og_indices.tolist())
+        expanded_indices = self._expand_to_parents(og_indices.tolist())
+        return pyg_extract_node(self.graph, expanded_indices)
 
 
 class GNNRetrievalConfig(BaseRetievalConfig):
