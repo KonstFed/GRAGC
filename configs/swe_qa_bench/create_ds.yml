@@ -1,4 +1,4 @@
-root_path: data/torch_cache/evocodebench
+root_path: data/torch_cache/swe_qa_bench
 repos_path: null
 graphs_path: null
 parser:

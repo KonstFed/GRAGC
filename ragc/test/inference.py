@@ -33,6 +33,11 @@ def parse_args():
         required=True,
         help="Path to .yaml config for inference",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Debug mode: save prompts to output instead of calling the API",
+    )
 
     return parser.parse_args()
 
@@ -40,6 +45,7 @@ def parse_args():
 def generate_completions(
     output_path: str | Path,
     config_path: str | Path,
+    debug: bool = False,
 ):
     output_path = Path(output_path).absolute().resolve()
     raw_output_path = output_path.parent / f"{output_path.stem}__raw.jsonl"
@@ -49,8 +55,22 @@ def generate_completions(
     os.makedirs(raw_output_dir, exist_ok=True)
 
     test_inference_cfg: TestInferenceConfig = load_config(TestInferenceConfig, config_path)
+
+    if debug:
+        # Enable debug on the generator config so it saves prompts instead of calling API
+        gen_cfg = test_inference_cfg.inference.fusion.generator
+        object.__setattr__(gen_cfg, "debug", True)
+
+        from ragc.llm.remote import OpenAIChatGenerator
+        debug_path = output_path.parent / f"{output_path.stem}__debug_prompts.jsonl"
+        OpenAIChatGenerator._debug_output_path = str(debug_path)
+        # Truncate the debug file
+        open(debug_path, "w").close()
+
     test_inference = test_inference_cfg.create()
     print(f"Loaded {len(test_inference.tasks)} tasks")
+    if debug:
+        print(f"[DEBUG MODE] Prompts will be saved on the fly to {debug_path}")
     print("-" * 256)
 
     f = open(output_path, "w")
@@ -72,6 +92,11 @@ def generate_completions(
         with open(output_path, "a") as f:
             json_line = json.dumps(result)
             f.write(json_line + "\n")
+
+    if debug:
+        from ragc.llm.remote import OpenAIChatGenerator
+        print(f"\n[DEBUG] Prompts saved to {OpenAIChatGenerator._debug_output_path}")
+        OpenAIChatGenerator._debug_output_path = None
 
 
 def retrieval_metrics(
@@ -117,6 +142,7 @@ if __name__ == "__main__":
             generate_completions(
                 args.output,
                 config_path=args.config,
+                debug=args.debug,
             )
         case "retrieval":
             retrieval_metrics(

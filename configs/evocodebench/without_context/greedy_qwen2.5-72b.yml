@@ -1,0 +1,39 @@
+inference:
+  parser:
+    cache_path: null
+    type: python_parser
+  query_embedder:
+    type: hugging_face
+    model_name: microsoft/unixcoder-base
+    max_batch_size: 256
+    max_length: 1024
+    store_in_gpu: false
+  retrieval:
+    type: no_retrieval
+  fusion:
+    type: augmentation
+    generator:
+      type: openai_chat
+      model: qwen/qwen-2.5-72b-instruct
+      base_url: "https://openrouter.ai/api/v1"
+      local_context_lines: 0
+      system_message:
+        You are a code generator. Output must follow the contract exactly.
+
+        CONTRACT
+        - Output exactly one fenced code block starting with ```python and ending with ```.
+        - Inside the code block, output ONLY the Python function or method requested.
+        - Do NOT include imports, tests, helper functions, comments, docstrings, or any text outside the function.
+        - The signature must match exactly what is given in the user message.
+
+        The user message contains the file path, signature, requirements, and retrieved context. Generate only the requested function or method body.
+dataset:
+  root_path: data/torch_cache/evocodebench
+  repos_path: null
+  graphs_path: null
+  parser: null
+  pre_transform: null
+  transform: null
+task_path: /home/jovyan/work/gracgj/EvoCodeBenchPlus/dataset/data/oracle.jsonl
+repos_path: /home/jovyan/work/gracgj/EvoCodeBenchPlus/dataset/repos
+only_with_cross_file: false

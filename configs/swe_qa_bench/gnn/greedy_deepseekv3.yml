@@ -1,0 +1,44 @@
+inference:
+  parser:
+    cache_path: null
+    type: python_parser
+  query_embedder:
+    type: hugging_face
+    model_name: microsoft/unixcoder-base
+    max_batch_size: 256
+    max_length: 1024
+    store_in_gpu: false
+  retrieval:
+    type: gnn
+    k: 30
+    model_path: BEST_CHECKPOINT.pt
+  fusion:
+    type: augmentation
+    generator:
+      type: openai_chat
+      model: deepseek/deepseek-chat-v3-0324
+      base_url: "https://openrouter.ai/api/v1"
+      local_context_lines: 0
+      system_message: |
+        You are a professional code analysis assistant, expert at explaining code
+        and answering programming questions about Python repositories.
+
+        The user message contains retrieved code snippets from the repository followed
+        by a question. Answer the question based on the provided code context and your
+        knowledge of the codebase.
+
+        Guidelines:
+        - Be accurate and specific, referencing file paths and code locations when relevant.
+        - Be concise but thorough — cover all key points.
+        - If the retrieved code is insufficient to fully answer, say so and provide
+          the best answer you can.
+        - Do NOT wrap your answer in JSON or code blocks — just provide a plain text answer.
+dataset:
+  root_path: data/torch_cache/swe_qa_bench
+  repos_path: null
+  graphs_path: null
+  parser: null
+  pre_transform: null
+  transform: null
+questions_dir: /home/jovyan/work/gracgj/SWE-QA-Bench/SWE-QA-Bench/datasets/questions
+repos: null
