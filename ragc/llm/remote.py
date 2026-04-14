@@ -23,6 +23,7 @@ def _build_prompt_from_query_and_nodes(
     query: dict[str, Any],
     relevant_nodes: list[Node],
     local_context_lines: int = 0,
+    max_context_chars: int = 0,
 ) -> str:
     """Build full prompt from query dict and relevant nodes (same shape as CompletionGenerator)."""
     prompt = query.get("prompt", "")
@@ -40,6 +41,18 @@ def _build_prompt_from_query_and_nodes(
         local_block = f"#{completion_path}\n{trimmed}"
     else:
         local_block = ""
+
+    if max_context_chars > 0:
+        reserved = len(prompt) + len(local_block)
+        budget = max(0, max_context_chars - reserved)
+        kept_docs = []
+        used = 0
+        for doc in docs:
+            if used + len(doc) > budget:
+                break
+            kept_docs.append(doc)
+            used += len(doc)
+        docs = kept_docs
 
     parts = docs + ([local_block] if local_block else []) + [prompt]
     return "\n\n".join(parts)
@@ -99,6 +112,7 @@ class OpenAIChatGenerator(AugmentedGenerator):
         client: OpenAI,
         model: str,
         local_context_lines: int = 0,
+        max_context_chars: int = 0,
         system_message: str | None = None,
         extra_kwargs: dict[str, Any] | None = None,
         debug: bool = False,
@@ -106,6 +120,7 @@ class OpenAIChatGenerator(AugmentedGenerator):
         self._client = client
         self._model = model
         self._local_context_lines = local_context_lines
+        self._max_context_chars = max_context_chars
         self._system_message = system_message
         self._extra_kwargs = extra_kwargs or {}
         self._debug = debug
@@ -116,7 +131,9 @@ class OpenAIChatGenerator(AugmentedGenerator):
             prompt = query
         else:
             prompt = _build_prompt_from_query_and_nodes(
-                query, relevant_nodes, local_context_lines=self._local_context_lines,
+                query, relevant_nodes,
+                local_context_lines=self._local_context_lines,
+                max_context_chars=self._max_context_chars,
             )
 
         messages = []
@@ -161,6 +178,7 @@ class OpenAIChatGeneratorConfig(AugmentedGeneratorConfig):
         description="Base URL. None = OpenAI, or https://openrouter.ai/api/v1 for OpenRouter",
     )
     local_context_lines: int = Field(default=0, description="Lines of local context in prompt")
+    max_context_chars: int = Field(default=0, description="Max chars for context (0 = unlimited). Drops trailing retrieved nodes to fit.")
     system_message: str | None = Field(default=None, description="Optional system message")
     extra_kwargs: dict[str, Any] = Field(
         default_factory=dict,
@@ -179,6 +197,7 @@ class OpenAIChatGeneratorConfig(AugmentedGeneratorConfig):
             client=client,
             model=self.model,
             local_context_lines=self.local_context_lines,
+            max_context_chars=self.max_context_chars,
             system_message=self.system_message,
             extra_kwargs=self.extra_kwargs,
             debug=self.debug,

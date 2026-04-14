@@ -17,6 +17,7 @@ inference:
       model: qwen/qwen-2.5-72b-instruct
       base_url: "https://openrouter.ai/api/v1"
       local_context_lines: 2000
+      max_context_chars: 80000
       system_message:
         You are a code generator. Output must follow the contract exactly.
 
