@@ -70,7 +70,8 @@ class ToHetero(BaseTransform, BaseTransformConfig):
             h_graph[node_type.name].signature = [graph.signature[i] for i in node_idx]
             h_graph[node_type.name].docstring = [graph.docstring[i] for i in node_idx]
             h_graph[node_type.name].name = [graph.name[i] for i in node_idx]
-            
+            h_graph[node_type.name].code = [graph.code[i] for i in node_idx]
+
             if has_docstring:
                 h_graph[node_type.name].query_emb = graph.docstring_embeddings[node_mask]
                 h_graph[node_type.name].docstring_mask = docstring_mask[node_mask]

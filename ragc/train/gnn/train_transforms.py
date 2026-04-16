@@ -368,6 +368,11 @@ class SampleCallPairsSubgraph(BaseTransform):
         new_graph.pairs = pairs
         new_graph.init_embs = embs
 
+        query_node_indices = torch.zeros(n_sampled_nodes, dtype=torch.long)
+        for orig_idx, embs_idx in mapping.items():
+            query_node_indices[embs_idx] = new_mapping.index(orig_idx)
+        new_graph.query_node_indices = query_node_indices
+
         return new_graph
 
 class SampleDocstringPairsSubgraph(BaseTransform):
@@ -399,6 +404,8 @@ class SampleDocstringPairsSubgraph(BaseTransform):
                 if torch.allclose(_q_emb, torch.zeros_like(_q_emb)):
                     raise ValueError("Query embedding mismatch")
                 subgraph.init_embs = _q_emb.view(1, -1)
+                query_pos = int(subgraph_mask[src][:with_docstring[i]].sum())
+                subgraph.query_node_idx = torch.tensor([query_pos])
                 out.append(subgraph)
 
         return out

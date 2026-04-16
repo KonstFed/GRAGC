@@ -136,14 +136,31 @@ class AblationEvaluator:
             InverseEdges(rev_suffix=""),
         ])
 
+        bm25_transform = Compose([
+            ToHetero(),
+            SampleDocstringPairsSubgraph() if docstring else SampleCallPairsSubgraph(),
+            DropIsolated("FILE"),
+            InitFileEmbeddings(),
+            InverseEdges(rev_suffix=""),
+        ])
+
         _, _, self.test_ds = train_val_test_split(
             dataset, [0.6, 0.2, 0.2],
             train_tf=val_transform, val_tf=val_transform, test_tf=val_transform,
         )
         print(f"Test set: {len(self.test_ds)} graphs")
 
+        _, _, bm25_test_ds = train_val_test_split(
+            dataset, [0.6, 0.2, 0.2],
+            train_tf=bm25_transform, val_tf=bm25_transform, test_tf=bm25_transform,
+        )
+
         self.test_loader = DataLoader(
             self.test_ds, batch_size=batch_size,
+            collate_fn=collate_for_validation, shuffle=False,
+        )
+        self.bm25_loader = DataLoader(
+            bm25_test_ds, batch_size=batch_size,
             collate_fn=collate_for_validation, shuffle=False,
         )
 
@@ -206,6 +223,45 @@ class AblationEvaluator:
 
             actual_all.extend(c_actual)
             predicted_all.extend(pred)
+        return compute_metrics(actual_all, predicted_all)
+
+    def eval_bm25_baseline(self) -> dict[str, float]:
+        """BM25: lexical retrieval on function code, query = docstring (docstring mode) or code (call mode)."""
+        from rank_bm25 import BM25Okapi
+
+        actual_all, predicted_all = [], []
+        for batched_graph in tqdm(self.bm25_loader, desc="BM25 baseline"):
+            batched_graph.to(self.device)
+            _, c_actual = self._get_pairs(batched_graph)
+            if c_actual is None:
+                continue
+
+            node_ptr = batched_graph["FUNCTION"].ptr
+            emb_ptr = batched_graph.init_embs_ptr
+
+            for i in range(len(node_ptr) - 1):
+                n_start, n_end = node_ptr[i].item(), node_ptr[i + 1].item()
+                q_start, q_end = emb_ptr[i].item(), emb_ptr[i + 1].item()
+
+                cand_texts = batched_graph["FUNCTION"].code[n_start:n_end]
+                tokenized = [t.lower().split() for t in cand_texts]
+                bm25 = BM25Okapi(tokenized)
+
+                for qi in range(q_start, q_end):
+                    if self.docstring:
+                        qni = int(batched_graph.query_node_idx[i]) + n_start
+                        query_text = batched_graph["FUNCTION"].docstring[qni]
+                    else:
+                        qni = int(batched_graph.query_node_indices[qi]) + n_start
+                        query_text = batched_graph["FUNCTION"].code[qni]
+
+                    scores = bm25.get_scores(query_text.lower().split())
+                    cur_k = min(self.retrieve_k, len(scores))
+                    top_k_local = sorted(range(len(scores)), key=lambda x: -scores[x])[:cur_k]
+                    predicted_all.append([idx + n_start for idx in top_k_local])
+
+                actual_all.extend(c_actual[q_start:q_end])
+
         return compute_metrics(actual_all, predicted_all)
 
     def eval_gnn_no_projector(self) -> dict[str, float]:
@@ -507,6 +563,18 @@ class AblationEvaluator:
         }
 
 
+def print_results_table(results: dict) -> None:
+    header = f"  {'Method':<43} | {'Recall':>8} | {'Prec':>8} | {'MRR':>8}"
+    sep = "-" * len(header)
+    print(sep)
+    print(header)
+    print(sep)
+    for name, m in results.items():
+        if isinstance(m, dict) and "mrr" in m:
+            print(f"  {name:<43} | {m['recall']:>8.4f} | {m['precision']:>8.4f} | {m['mrr']:>8.4f}")
+    print(sep)
+
+
 def run_ablation(
     dataset_path: Path,
     pretrain_model_path: Path | None,
@@ -533,6 +601,11 @@ def run_ablation(
     print("\n--- A) KNN Baseline (raw embeddings) ---")
     results["docstring_knn_baseline"] = doc_evaluator.eval_knn_baseline()
     print(results["docstring_knn_baseline"])
+
+    # A2) BM25 baseline
+    print("\n--- A2) BM25 Baseline (lexical retrieval) ---")
+    results["docstring_bm25_baseline"] = doc_evaluator.eval_bm25_baseline()
+    print(results["docstring_bm25_baseline"])
 
     if finetune_model_path and finetune_model_path.exists():
         print(f"\nUsing finetuned model: {finetune_model_path}")
@@ -594,6 +667,10 @@ def run_ablation(
     results["code_knn_baseline"] = code_evaluator.eval_knn_baseline()
     print(results["code_knn_baseline"])
 
+    print("\n--- A2) BM25 Baseline (lexical retrieval, code queries) ---")
+    results["code_bm25_baseline"] = code_evaluator.eval_bm25_baseline()
+    print(results["code_bm25_baseline"])
+
     if pretrain_model_path and pretrain_model_path.exists():
         print("\n--- D) Full GNN (code queries) ---")
         code_evaluator.load_model(pretrain_model_path)
@@ -604,9 +681,7 @@ def run_ablation(
     print("\n" + "=" * 60)
     print("SUMMARY")
     print("=" * 60)
-    for name, metrics in results.items():
-        if isinstance(metrics, dict) and "mrr" in metrics:
-            print(f"  {name:40s} | MRR: {metrics['mrr']:.4f} | Recall: {metrics['recall']:.4f} | Precision: {metrics['precision']:.4f}")
+    print_results_table(results)
 
     output_path.mkdir(parents=True, exist_ok=True)
     with open(output_path / "ablation_results.json", "w") as f:
