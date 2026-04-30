@@ -1,121 +1,89 @@
-This project aims to train GraphSAGE for Retrieval Augmented Code Generation with context of whole repository.
+# GRAGC: Graph-Based Retrieval-Augmented Code Generation
 
-You can read more about general idea in [report](./assets/RACG%20IDEA.pdf).
+**GRAGC** trains a heterogeneous Graph Neural Network (HeteroGraphSAGE) to retrieve relevant code context from an entire repository for LLM-based code generation. It constructs a whole-repository call graph and learns to rank functions and classes by relevance to a query at inference time.
 
-Authors:
-- Konstantin Fedorov (k.fedorov@innopolis.university)
-- Boris Zarubin (b.zarubin@innopolis.university)
+## Data Availability
+
+The training dataset consists of 1,672 public GitHub repositories listed in [`meta.csv`](./meta.csv). Each entry contains `owner/repo` and the exact commit hash at which it was accessed, allowing the training graphs to be reproduced deterministically. No proprietary data was used.
+
+---
 
 ## Installation
+
+Requires Python 3.11 and [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync
 ```
 
-## Evaluation on EvoCodeBench
+---
 
-### 1. Prepare dataset
+## Reproducing Results
 
-Clone [EvoCodeBenchPlus](https://github.com/Poseidondon/EvoCodeBenchPlus) and set up repos according to its instructions.
+### EvoCodeBench
 
-Parse repos into a graph dataset:
+**1. Clone the benchmark**
+
+```bash
+git clone https://github.com/Poseidondon/EvoCodeBenchPlus.git
+```
+
+Follow its setup instructions to download the benchmark repositories.
+
+**2. Build graph dataset**
 
 ```bash
 uv run python -m ragc.datasets.create_dataset \
-    --evocodebench /path/to/EvoCodeBench/dataset/repos \
+    --evocodebench /path/to/EvoCodeBenchPlus/dataset/repos \
     configs/evocodebench/create_ds.yml
 ```
 
-This creates cached PyG graphs under `data/torch_cache/evocodebench/`.
+Caches PyG graphs under `data/torch_cache/evocodebench/`.
 
-### 2. Configure
+**3. Train the GNN** — see [Training](#training-the-gnn) below.
 
-Edit a config under `configs/evocodebench/gnn/<model>/greedy.yml`:
+**4. Configure** — edit `configs/evocodebench/<method>/greedy_*.yml`:
 
-- `retrieval.model_path` — path to your trained `BEST_CHECKPOINT.pt`
-- `fusion.generator` — model path or API endpoint for the LLM
-- `task_path` — path to EvoCodeBench `oracle.jsonl`
-- `repos_path` — path to EvoCodeBench cloned repos
+| Field | Description |
+|---|---|
+| `retrieval.model_path` | Path to trained checkpoint |
+| `fusion.generator` | LLM model name or API endpoint |
+| `task_path` | Path to EvoCodeBench `oracle.jsonl` |
+| `repos_path` | Path to cloned EvoCodeBench repos |
 
-### 3. Run inference
-
-**Code completion:**
+**5. Run inference**
 
 ```bash
+# Code completion
 uv run python -m ragc.test.inference \
     -t completion \
     -o output/evocodebench/completions.jsonl \
-    -c configs/evocodebench/gnn/<model>/greedy.yml
-```
+    -c configs/evocodebench/gnn/greedy_deepseekv3.yml
 
-**Retrieval metrics only (recall / precision):**
-
-```bash
+# Retrieval metrics only (recall / precision)
 uv run python -m ragc.test.inference \
     -t retrieval \
-    -o output/evocodebench/retrieval_metrics.json \
-    -c configs/evocodebench/gnn/<model>/greedy.yml
+    -o output/evocodebench/retrieval.json \
+    -c configs/evocodebench/gnn/greedy_deepseekv3.yml
 ```
 
-Output is a JSONL file with `namespace` and `completion` fields, compatible with EvoCodeBench evaluation scripts.
+---
 
-## Evaluation on SWE-QA-Bench
+## Retrieval Methods
 
-### 1. Clone benchmark repos
+| Method | Config dir | Description |
+|---|---|---|
+| **GNN** (proposed) | `gnn/` | HeteroGraphSAGE trained on call-graph triplets |
+| GNN + local context | `gnn_local_context/` | GNN retrieval combined with surrounding file context |
+| Local context | `local_context/` | Embedding retrieval over functions in the same file |
+| Golden context | `golden_context/` | Oracle: ground-truth context provided to the LLM |
+| Local golden | `local_golden/` | Oracle local context (ground-truth functions in same file) |
+| No context | `without_context/` | LLM only, no retrieval |
 
-```bash
-git clone https://github.com/peng-weihan/SWE-QA-Bench.git
-cd SWE-QA-Bench
-bash clone_repos.sh
-cd ..
-```
+---
 
-### 2. Prepare dataset
+## Training the GNN
 
-Parse the cloned repos into a graph dataset:
+First build the graph dataset (Step 2 above). Training is driven by the `Trainer` class in `ragc/train/gnn/training.py` — instantiate it with a `TorchGraphDataset`, a `HeteroGraphSAGE` model, and a `TripletLoss`, then call `trainer.train()`. The checkpoint is saved as a standard PyTorch state dict.
 
-```bash
-uv run python -m ragc.datasets.create_swe_qa_dataset \
-    configs/swe_qa_bench/create_ds.yml \
-    --repos-dir SWE-QA-Bench/SWE-QA-Bench/datasets/repos
-```
-
-This creates cached PyG graphs under `data/torch_cache/swe_qa_bench/`.
-
-### 3. Configure
-
-Edit `configs/swe_qa_bench/gnn/greedy.yml`:
-
-- `retrieval.model_path` — path to your trained `BEST_CHECKPOINT.pt`
-- `inference.fusion.generator.model` — LLM model name (e.g. `gpt-oss-120b`)
-- `inference.fusion.generator.base_url` — API endpoint
-- `questions_dir` — path to `SWE-QA-Bench/SWE-QA-Bench/datasets/questions`
-- `repos` — (optional) list of repo names to evaluate; `null` for all available
-
-Set the API key:
-
-```bash
-export API_KEY=your-api-key
-```
-
-### 4. Run inference
-
-```bash
-uv run python -m ragc.test.swe_qa_inference \
-    -c configs/swe_qa_bench/gnn/greedy.yml \
-    -o output/swe_qa_bench/gnn
-```
-
-This produces per-repo JSONL files (e.g. `flask.jsonl`, `django.jsonl`) in the output directory. Each line contains `question`, `final_answer`, and `retrieved_context`.
-
-### 5. Score
-
-Use the SWE-QA-Bench scorer to evaluate answers against reference:
-
-```bash
-cd SWE-QA-Bench
-# set OPENAI_API_KEY, OPENAI_BASE_URL, MODEL, METHOD in .env
-python -m SWE-QA-Bench.score.main
-```
-
-Scores are written to `SWE-QA-Bench/datasets/scores/<model>/<method>/`.
+---
